@@ -1,0 +1,8 @@
+{
+  "name": "WeOnline ISP Portal & Mikrotik Manager",
+  "description": "Full-stack ISP portal with built-in MikroTik L009 simulation, automated client billing, and real-time network monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

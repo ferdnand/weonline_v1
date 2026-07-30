@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "mongeta5@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isTechnician() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'technician' || isAdmin());
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'role', 'name']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['admin', 'technician'] &&
+             data.name is string;
+    }
+
+    function isValidClient(data) {
+      return hasOnlyAllowedFields(['name', 'type', 'planName', 'price', 'startDate', 'expiryDate', 'status', 'online', 'phoneNumber', 'macAddress', 'routerId', 'pppoeUsername', 'pppoePassword']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.type in ['hotspot', 'pppoe'] &&
+             data.status in ['active', 'expired'];
+    }
+
+    function isValidRouter(data) {
+      return hasOnlyAllowedFields(['name', 'location', 'ipAddress', 'status']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100;
+    }
+
+    function isValidTransaction(data) {
+      return hasOnlyAllowedFields(['clientId', 'clientName', 'amount', 'date', 'planName', 'type']) &&
+             data.clientId is string &&
+             data.amount is number &&
+             data.date is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+    }
+
+    match /clients/{clientId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician() && isValidClient(request.resource.data);
+      allow update: if isTechnician() && isValidClient(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /routers/{routerId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician() && isValidRouter(request.resource.data);
+      allow update: if isTechnician() && isValidRouter(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isTechnician();
+      allow create: if isTechnician() && isValidTransaction(request.resource.data);
+      allow update: if isAdmin() && isValidTransaction(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}
