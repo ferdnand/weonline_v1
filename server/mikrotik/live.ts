@@ -152,7 +152,9 @@ export class LiveRouterOsDriver implements MikrotikDriver {
           service: 'pppoe',
           profile: spec.profile,
           comment: spec.comment || '',
-          'limit-bytes-total': String(spec.dataCapMb * 1024 * 1024),
+          // NOTE: /ppp/secret has NO `limit-bytes-total` (that's a hotspot-user field).
+          // A PPPoE data cap is an egress byte limit; only send it when a cap is set.
+          ...(spec.dataCapMb > 0 ? { 'limit-bytes-out': String(spec.dataCapMb * 1024 * 1024) } : {}),
         };
         if (existing) await this.rest(rec, 'PATCH', `/ppp/secret/${enc(existing['.id'])}`, attrs);
         else await this.rest(rec, 'PUT', '/ppp/secret', attrs);
@@ -238,8 +240,12 @@ export class LiveRouterOsDriver implements MikrotikDriver {
     const s = this.store.data.simState[routerId] || emptyState(routerId, rec.identity, rec.model, nowMs);
     this.store.data.simState[routerId] = s;
     try {
-      const [resource, health, secrets, hsUsers, pppActive, hsActive, queues] = await Promise.all([
-        this.rest(rec, 'GET', '/system/resource').then((r) => r.data).catch(() => null),
+      // The resource fetch determines REACHABILITY — it is NOT caught, so an
+      // unreachable device / bad creds throws and drops us into the catch below
+      // (marking offline + lastError). The rest are best-effort (a menu like
+      // hotspot may be empty on a given box) and default to [] on error.
+      const resource = await this.rest(rec, 'GET', '/system/resource').then((r) => r.data);
+      const [health, secrets, hsUsers, pppActive, hsActive, queues] = await Promise.all([
         this.rest(rec, 'GET', '/system/health').then((r) => r.data).catch(() => null),
         this.rest(rec, 'GET', '/ppp/secret').then((r) => arr(r.data)).catch(() => []),
         this.rest(rec, 'GET', '/ip/hotspot/user').then((r) => arr(r.data)).catch(() => []),

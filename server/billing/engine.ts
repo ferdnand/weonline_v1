@@ -181,12 +181,21 @@ export class BillingEngine {
     };
     this.d().subscriptions.push(subscription);
 
-    // Provision on the router but keep disabled until paid.
-    await this.mik.upsertUser(sub.routerId, this.provisionSpec(sub, plan), nowMs);
-    await this.mik.setUserEnabled(sub.routerId, sub.username, false, nowMs);
-
+    // Issue the invoice FIRST so billing never depends on the device being
+    // reachable — the customer can always be invoiced and pay.
     const invoice = this.issueInvoice(subscription, plan, nowMs);
     this.store.save();
+
+    // Then provision on the router (kept disabled until paid). Best-effort: a
+    // device error is recorded (RouterRecord.lastError) but must NOT abort the
+    // enrollment. The user is (re)provisioned on payment via settleInvoice.
+    try {
+      await this.mik.upsertUser(sub.routerId, this.provisionSpec(sub, plan), nowMs);
+      await this.mik.setUserEnabled(sub.routerId, sub.username, false, nowMs);
+    } catch (err) {
+      console.error('[billing] enroll provisioning failed (will retry on payment):', err instanceof Error ? err.message : err);
+    }
+
     return { subscription, invoice };
   }
 
@@ -371,7 +380,14 @@ export class BillingEngine {
       sub.currentPeriodEnd = invoice.periodEnd;
     }
     this.setStatus(sub, 'active', nowMs);
-    await this.applyProvisioning(sub, true, nowMs);
+    // Best-effort: the payment is already recorded, so a device error here must
+    // not fail settlement. It surfaces as RouterRecord.lastError; staff can
+    // re-provision with the Activate action once the router is reachable.
+    try {
+      await this.applyProvisioning(sub, true, nowMs);
+    } catch (err) {
+      console.error('[billing] provisioning on payment failed (retry via Activate):', err instanceof Error ? err.message : err);
+    }
   }
 
   // ── Recurring billing cycle ──────────────────────────────────────────────────
