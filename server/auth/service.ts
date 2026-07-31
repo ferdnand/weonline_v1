@@ -96,6 +96,42 @@ export class AuthService {
     return toPublicUser(rec);
   }
 
+  /** All accounts as safe public shapes (never exposes hashes). */
+  listUsers(): Array<PublicUser & { createdAt: string }> {
+    return this.users().map((u) => ({ ...toPublicUser(u), createdAt: u.createdAt }));
+  }
+
+  adminCount(): number {
+    return this.users().filter((u) => u.role === 'admin').length;
+  }
+
+  deleteUser(uid: string): void {
+    const idx = this.users().findIndex((u) => u.uid === uid);
+    if (idx === -1) throw new Error('user not found');
+    this.users().splice(idx, 1);
+    this.store.save();
+  }
+
+  setRole(uid: string, role: Role): PublicUser {
+    const rec = this.findByUid(uid);
+    if (!rec) throw new Error('user not found');
+    rec.role = role;
+    this.store.save();
+    return toPublicUser(rec);
+  }
+
+  resetPassword(uid: string, password: string): void {
+    if (typeof password !== 'string' || password.length < 8) {
+      throw new Error('Password must be at least 8 characters.');
+    }
+    const rec = this.findByUid(uid);
+    if (!rec) throw new Error('user not found');
+    rec.salt = crypto.randomBytes(16).toString('hex');
+    rec.iterations = PBKDF2_ITERATIONS;
+    rec.passwordHash = hash(password, rec.salt, PBKDF2_ITERATIONS);
+    this.store.save();
+  }
+
   /** Verify credentials; returns the account on success, null otherwise. */
   verify(email: string, password: string): AuthUserRecord | null {
     const rec = this.findByEmail(email);

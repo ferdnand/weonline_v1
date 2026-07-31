@@ -18,12 +18,8 @@ combines a public package storefront with an admin/technician portal. It is a
 ## 1. Prerequisites
 
 - **Node.js** 18+ (project uses ESM, `"type": "module"`)
-- A package manager. The repo currently carries **both** `bun.lock` and
-  `package-lock.json`. Pick one and stay consistent (recommend **npm** + deleting
-  `bun.lock`):
-  - **npm**: `npm install`
-  - **bun**: `bun install`
-  - Do not mix.
+- **npm** is the package manager (`package-lock.json` is the single source of truth):
+  - `npm install`
 
 No cloud accounts or API keys are required. A few **environment variables** are read
 (see below) — all optional for local dev, but some are required for production.
@@ -41,8 +37,12 @@ by [`server/loadenv.ts`](server/loadenv.ts) (imported first in `server.ts`) from
 | `AUTH_SECRET` | HMAC key that signs API session tokens. | Optional (an ephemeral one is generated; sessions reset on restart) | **Required** — long random value |
 | `DATA_ENCRYPTION_KEY` | 32-byte key (64 hex) to encrypt credential fields at rest. | Optional (derived from `AUTH_SECRET` if unset) | Recommended (explicit key) |
 | `HOST` | Bind address. Defaults to `127.0.0.1` (API not exposed on the network). | — | Set `0.0.0.0` only behind an authenticating reverse proxy / VPN |
+| `TRUST_PROXY` | Number of proxy hops (e.g. `1`) so client IPs / rate-limiting are correct behind a proxy. | — | Set **iff** behind a reverse proxy |
+| `TLS_KEY_FILE` / `TLS_CERT_FILE` | Serve HTTPS natively from these PEM files (instead of a proxy). | Optional | Use a proxy OR these |
 | `ROUTER_<ID>_PASSWORD` | Per-router live REST password, keeps it out of `data/weonline.json`. | Optional | Recommended for live routers |
 | `ROUTER_ALLOW_ANY_HOST` | `1` disables the private-IP SSRF guard on live routers. | Optional | Leave unset unless a routable router is required |
+
+Deployment (reverse proxy / native TLS) is covered in [`deploy/`](deploy/).
 
 Generate secrets with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
@@ -57,12 +57,14 @@ Generate secrets with: `node -e "console.log(require('crypto').randomBytes(32).t
 |-----------------|------------------|----------------------------------------------------|
 | Dev server      | `npm run dev`    | Runs `tsx server.ts` → Express + Vite middleware on `http://localhost:3000` |
 | Type-check/lint | `npm run lint`   | `tsc --noEmit` (no ESLint configured)              |
+| Test            | `npm test`       | Vitest unit + integration tests (`server/**/*.test.ts`); `npm run test:watch` to watch |
 | Production build| `npm run build`  | `vite build` + esbuild bundles the server to `dist/server.cjs` |
 | Start (prod)    | `npm start`      | `node dist/server.cjs`, serves static `dist/`      |
 | Clean           | `npm run clean`  | Removes `dist/`                                     |
 
-> There is currently **no automated test suite**. `npm run lint` (type-check) is the
-> only static gate.
+> Tests cover the security-critical server modules — auth tokens (sign/verify/expiry),
+> PBKDF2 credential verification, at-rest field encryption, the SSRF private-IP guard,
+> and an end-to-end auth-gate + staff-management integration test (via supertest).
 
 ---
 
@@ -203,9 +205,10 @@ IndexedDB object stores (formerly Firestore collections, same shapes):
 - **Auth is enforced server-side.** Every `/api/mikrotik` and `/api/billing` call
   requires a valid signed session token; DELETEs additionally require the `admin` role
   (mirrors the former Firestore rules). Passwords are PBKDF2-hashed.
-- The **first** account to register bootstraps as `admin`; all later accounts are
-  `technician` unless an admin creates them with an explicit role. Self-registration
-  closes once the first account exists.
+- The **first** account to register bootstraps as `admin`; self-registration then closes.
+  Admins manage all later accounts from the **Staff** tab (create, change role, reset
+  password, delete — backed by `/api/auth/users*`), which enforces "can't remove the last
+  admin / your own account" guards.
 - The client's role (from the server) still drives the **UI gate** in `App.tsx`, but the
   server is the real boundary — the UI gate is now defense-in-depth, not the only check.
 
@@ -236,10 +239,11 @@ This app is a **prototype** that now includes a genuinely stateful (but still
   role-enforced `/api/*` (admin-only DELETEs). The legacy admin CRUD
   (clients/routers/transactions) still persists in the browser's IndexedDB.
 
-> ✅ **Server-side authorization is now in place.** `/api/mikrotik` and `/api/billing`
-> require a valid session; DELETEs require `admin`. Still to harden before a public,
-> multi-user deployment: put it behind TLS (reverse proxy), set a stable `AUTH_SECRET` /
-> `DATA_ENCRYPTION_KEY`, add a tailored CSP, and add an admin UI for staff management.
+> ✅ **Server-side authorization is in place**, with helmet + a tailored CSP, login
+> rate-limiting, an admin **Staff** tab for account management, at-rest secret
+> encryption, and TLS options (reverse proxy or native — see [`deploy/`](deploy/)).
+> Before a public deployment still: set a stable `AUTH_SECRET` / `DATA_ENCRYPTION_KEY`,
+> put TLS in front, and set `TRUST_PROXY` if behind a proxy.
 
 ---
 
@@ -255,7 +259,8 @@ weonline_v1/
 │   │   └── client.ts            # Typed REST client for the server backend
 │   ├── views/
 │   │   ├── BillingView.tsx      # Admin "Billing" sub-tab (server-backed)
-│   │   └── MikrotikConsole.tsx  # Admin "MikroTik" sub-tab (server-backed)
+│   │   ├── MikrotikConsole.tsx  # Admin "MikroTik" sub-tab (server-backed)
+│   │   └── StaffView.tsx        # Admin "Staff" sub-tab (admin-only account management)
 │   └── data/                    # Backend-agnostic data layer
 │       ├── index.ts             # Backend selector (auth: server, data: IndexedDB)
 │       ├── types.ts             # AuthService + DataStore contracts
@@ -268,18 +273,22 @@ weonline_v1/
 │   ├── crypto.ts                # password generation + AES-GCM field encryption
 │   ├── store.ts                 # JSON-file persistence (encrypts secrets at rest) + makeId
 │   ├── types.ts                 # Server domain types (AuthUserRecord, RouterRecord.driver, ...)
+│   ├── net.ts                   # pure net helpers (isPrivateIpv4 SSRF guard) + net.test.ts
 │   ├── scheduler.ts             # Async ticking loop (manager.refreshAll + billing cycle)
 │   ├── seed.ts                  # First-run seed world (simulator routers)
-│   ├── auth/                    # service.ts, tokens.ts, middleware.ts, routes.ts
+│   ├── crypto.test.ts           # (tests colocate next to the module they cover)
+│   ├── auth/                    # service.ts, tokens.ts, middleware.ts, routes.ts (+ *.test.ts)
 │   ├── mikrotik/                # driver.ts, simulator.ts, live.ts, manager.ts, routes.ts
 │   └── billing/                 # engine.ts + routes.ts
+├── deploy/                      # Caddyfile, nginx.conf, README (reverse proxy / TLS)
 ├── data/                        # Runtime state (weonline.json) — gitignored
-├── server.ts                    # Express + Vite dev/prod server; helmet, calls mountApi
+├── server.ts                    # Express + Vite dev/prod server; helmet + CSP, TLS, calls mountApi
 ├── index.html                   # SPA host page
 ├── metadata.json                # App manifest (name/description)
 ├── vite.config.ts               # Vite + Tailwind + React config
+├── vitest.config.ts             # Test runner config (node env, server/**/*.test.ts)
 ├── tsconfig.json
-├── .env.example                 # documents AUTH_SECRET / HOST / router + data-key vars
+├── .env.example                 # documents AUTH_SECRET / HOST / TLS / router + data-key vars
 ├── .env.local                   # local secrets (gitignored)
 ├── AUTHORIZATION.md             # access model + former security rules
 └── package.json
@@ -306,17 +315,14 @@ weonline_v1/
 - **Set `AUTH_SECRET` (and ideally `DATA_ENCRYPTION_KEY`) in production.** Without them a
   session secret is ephemeral (logins reset on restart) and passwords are stored plaintext
   at rest. See §2.
-- **No admin UI for staff management yet.** After the first admin, further accounts are
-  created via `POST /api/auth/users` (admin token) — a UI for this is a follow-up.
-- **No TLS on the app server itself.** Terminate TLS at a reverse proxy before exposing it
-  (and only then set `HOST=0.0.0.0`).
-- **No tailored CSP.** `helmet` runs with CSP disabled so the SPA works; add a policy.
+- **No self-service password reset / email flow.** An admin resets passwords from the
+  Staff tab (or `POST /api/auth/users/:uid/password`); there's no email-based recovery.
+- **Legacy IndexedDB admin CRUD** (clients/routers/transactions) is still browser-local and
+  unauthenticated at the data layer — only the server-backed Billing/MikroTik/Staff surfaces
+  are protected. Migrate those to the server if they become load-bearing.
 - **Router telemetry writes many fields.** The former Firestore router validator only
   allowed `name, location, ipAddress, status` while the app writes ~11 fields — a bug
   noted in `AUTHORIZATION.md` to fix if router validation is ever re-enforced server-side.
-- **Two lockfiles:** `bun.lock` + `package-lock.json`. Standardize on one (recommend
-  deleting `bun.lock`).
-- **No test suite.**
 
 ---
 

@@ -49,11 +49,22 @@ export function authRoutes(store: Store): ExpressRouter {
     }
   });
 
-  // Admin-only: create a staff account (role defaults to technician).
-  r.post('/users', requireAuth, (req: AuthedRequest, res) => {
+  // ── Admin-only staff management ─────────────────────────────────────────────
+  const adminOnly = (req: AuthedRequest, res: import('express').Response, next: import('express').NextFunction) => {
     if (req.auth?.role !== 'admin') {
-      return res.status(403).json({ error: 'admin role required' });
+      res.status(403).json({ error: 'admin role required' });
+      return;
     }
+    next();
+  };
+
+  // List all staff accounts (no password hashes).
+  r.get('/users', requireAuth, adminOnly, (_req, res) => {
+    res.json({ users: auth.listUsers() });
+  });
+
+  // Create a staff account (role defaults to technician).
+  r.post('/users', requireAuth, adminOnly, (req: AuthedRequest, res) => {
     const { email, password, displayName, role } = req.body || {};
     const wantRole = role === 'admin' ? 'admin' : 'technician';
     try {
@@ -61,6 +72,44 @@ export function authRoutes(store: Store): ExpressRouter {
       res.json({ user });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'could not create user' });
+    }
+  });
+
+  // Change a user's role. Guards: can't change your own role, can't remove the last admin.
+  r.post('/users/:uid/role', requireAuth, adminOnly, (req: AuthedRequest, res) => {
+    const role = req.body?.role === 'admin' ? 'admin' : 'technician';
+    const target = auth.findByUid(req.params.uid);
+    if (!target) return res.status(404).json({ error: 'user not found' });
+    if (req.auth!.uid === target.uid) return res.status(400).json({ error: 'you cannot change your own role' });
+    if (target.role === 'admin' && role !== 'admin' && auth.adminCount() <= 1) {
+      return res.status(400).json({ error: 'cannot demote the last admin' });
+    }
+    res.json({ user: auth.setRole(target.uid, role) });
+  });
+
+  // Reset a user's password.
+  r.post('/users/:uid/password', requireAuth, adminOnly, (req: AuthedRequest, res) => {
+    try {
+      auth.resetPassword(req.params.uid, String(req.body?.password ?? ''));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'could not reset password' });
+    }
+  });
+
+  // Delete a staff account. Guards: can't delete yourself or the last admin.
+  r.delete('/users/:uid', requireAuth, adminOnly, (req: AuthedRequest, res) => {
+    const target = auth.findByUid(req.params.uid);
+    if (!target) return res.status(404).json({ error: 'user not found' });
+    if (req.auth!.uid === target.uid) return res.status(400).json({ error: 'you cannot delete your own account' });
+    if (target.role === 'admin' && auth.adminCount() <= 1) {
+      return res.status(400).json({ error: 'cannot delete the last admin' });
+    }
+    try {
+      auth.deleteUser(target.uid);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'could not delete user' });
     }
   });
 

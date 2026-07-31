@@ -2,7 +2,8 @@ node_modules/
 build/
 dist/
 coverage/
-data/
+# Runtime state only (repo root). Anchored so it does NOT also match src/data/.
+/data/
 .DS_Store
 *.log
 .env*

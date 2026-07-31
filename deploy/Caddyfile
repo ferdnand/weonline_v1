@@ -1,0 +1,24 @@
+# WeOnline — reverse proxy with automatic HTTPS (Caddy).
+#
+# Caddy obtains and renews a Let's Encrypt certificate automatically. The app itself
+# stays on plain HTTP bound to localhost (HOST=127.0.0.1, the default) — only Caddy
+# is exposed to the network, and it terminates TLS.
+#
+# Usage:
+#   1) Point weonline.example.com's DNS at this host.
+#   2) Run the app:  AUTH_SECRET=... NODE_ENV=production npm start   (listens on 127.0.0.1:3000)
+#   3) Run Caddy:    caddy run --config ./deploy/Caddyfile
+#
+# Because the app is reached via this proxy, also set TRUST_PROXY=1 for the app so
+# rate-limiting sees real client IPs.
+
+weonline.example.com {
+	encode gzip
+
+	# Match the app's 100kb JSON body cap (plus a little margin).
+	request_body {
+		max_size 256KB
+	}
+
+	reverse_proxy 127.0.0.1:3000
+}

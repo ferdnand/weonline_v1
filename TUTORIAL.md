@@ -83,12 +83,7 @@ No login is required to browse and "buy" packages.
    - **First run:** there are no accounts yet, so the form shows *Create Admin Account*.
      The **first** person to sign up becomes the `admin`. (Password must be ≥ 8 chars.)
    - After that first account, **self-registration is closed** (the *Sign up* toggle
-     disappears). An admin creates further staff accounts via the API:
-     ```bash
-     curl -X POST http://localhost:3000/api/auth/users \
-       -H "Authorization: Bearer <admin-token>" -H 'Content-Type: application/json' \
-       -d '{"email":"tech@weonline.net","password":"<≥8 chars>","role":"technician"}'
-     ```
+     disappears). An admin adds further staff from the **Staff** tab (see below).
 3. An **Admin Portal** tab appears in the nav once you're signed in.
 
 > 🔐 Sessions last 12h and are signed with `AUTH_SECRET`. If that isn't set, an
@@ -102,6 +97,16 @@ A quick overview with four stat cards:
 - **Router CPU / Temp** — averaged across "online" MikroTik routers.
 
 Plus **Recent Transactions** and **Router Status** panels.
+
+### Manage staff (admins only)
+The **Staff** tab appears only for admins. From here you can:
+- **Add staff** — create an account with a role (`technician` or `admin`).
+- **Make admin / technician** — toggle a colleague's role.
+- **Reset password** (🔑) — set a new password for someone who's locked out.
+- **Delete** (🗑) — remove an account.
+
+The server blocks you from deleting your own account or removing the **last admin**, so
+you can't accidentally lock everyone out.
 
 ### Manage clients
 Under the **Clients** tab:

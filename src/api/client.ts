@@ -303,7 +303,26 @@ export const api = {
     req<{ ok: true }>('POST', `/api/mikrotik/routers/${id}/active/${sessionId}/disconnect`),
   setUserEnabled: (id: string, username: string, enabled: boolean) =>
     req<{ ok: true }>('POST', `/api/mikrotik/routers/${id}/users/${encodeURIComponent(username)}/enabled`, { enabled }),
+
+  // Staff (admin-only)
+  listStaff: () => req<{ users: StaffUser[] }>('GET', '/api/auth/users'),
+  createStaff: (b: { email: string; password: string; displayName?: string; role?: StaffRole }) =>
+    req<{ user: StaffUser }>('POST', '/api/auth/users', b),
+  setStaffRole: (uid: string, role: StaffRole) =>
+    req<{ user: StaffUser }>('POST', `/api/auth/users/${uid}/role`, { role }),
+  resetStaffPassword: (uid: string, password: string) =>
+    req<{ ok: true }>('POST', `/api/auth/users/${uid}/password`, { password }),
+  deleteStaff: (uid: string) => req<{ ok: true }>('DELETE', `/api/auth/users/${uid}`),
 };
+
+export type StaffRole = 'admin' | 'technician';
+export interface StaffUser {
+  uid: string;
+  email: string;
+  role: StaffRole;
+  displayName: string | null;
+  createdAt: string;
+}
 
 // ── Formatting helpers shared by the views ────────────────────────────────────
 

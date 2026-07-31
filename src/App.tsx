@@ -39,6 +39,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import BillingView from './views/BillingView';
 import MikrotikConsole from './views/MikrotikConsole';
+import StaffView from './views/StaffView';
 import { authService, dataStore } from './data';
 import type {
   AuthUser,
@@ -151,7 +152,7 @@ const packages: Record<string, Package[]> = {
 
 export default function App() {
   const [view, setView] = useState<'plans' | 'subscriptions' | 'history' | 'admin'>('plans');
-  const [adminView, setAdminView] = useState<'dashboard' | 'billing' | 'mikrotik' | 'clients' | 'routers' | 'transactions'>('dashboard');
+  const [adminView, setAdminView] = useState<'dashboard' | 'billing' | 'mikrotik' | 'clients' | 'routers' | 'transactions' | 'staff'>('dashboard');
   const [activeTab, setActiveTab] = useState<'connect' | 'monthly'>('connect');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1294,7 +1295,7 @@ export default function App() {
                 <p className="text-slate-500">Manage your network, clients, and billing.</p>
               </div>
               <div className="flex p-1 bg-slate-100 rounded-2xl">
-                {(['dashboard', 'billing', 'mikrotik', 'clients', 'routers', 'transactions'] as const).map((tab) => (
+                {(['dashboard', 'billing', 'mikrotik', 'clients', 'routers', 'transactions', ...(userProfile?.role === 'admin' ? ['staff'] as const : [])] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setAdminView(tab)}
@@ -1680,6 +1681,10 @@ export default function App() {
                   </table>
                 </div>
               </div>
+            )}
+
+            {adminView === 'staff' && userProfile?.role === 'admin' && user && (
+              <StaffView currentUid={user.uid} />
             )}
           </motion.div>
         ) : view === 'subscriptions' ? (
