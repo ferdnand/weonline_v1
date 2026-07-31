@@ -4,8 +4,9 @@ Welcome! This walkthrough gets a new contributor from zero to a running WeOnline
 then tours the core features from both the **customer** and **admin** perspectives.
 
 WeOnline is a Wireless ISP (WISP) management app: customers buy internet packages, and
-staff manage clients, routers, and billing. Note that several features (M-Pesa
-payments, router telemetry) are **simulated** — see the callouts below.
+staff manage clients, routers, and billing. The admin portal now includes a **full
+billing engine** and a **stateful MikroTik RouterOS simulator** running in the Express
+server (see Part 3). M-Pesa payments are still **simulated** — see the callouts below.
 
 ---
 
@@ -105,20 +106,45 @@ Under the **Clients** tab:
   - ✏️ **Edit** — update client details.
   - 🗑️ **Delete** — *admins only*.
 
-### Manage routers
-Under the **Routers** tab:
-- **Add Router** — name, model, IP, API port, credentials, location, and a
-  "MikroTik RouterOS Simulation" toggle.
-- Online MikroTik routers display **live-updating** CPU, memory, temp, and user
-  counts.
+### Billing (server-backed) 💳
+The **Billing** tab is the full-scale billing system, backed by the Express engine
+(persists to `data/weonline.json`). Four sub-sections:
 
-> 🟡 **Simulated:** Router telemetry is random data from `/api/mikrotik/status`
-> ([server.ts](server.ts)), polled every 10 seconds. There is no real RouterOS
-> connection.
+- **Overview** — revenue this month, MRR, outstanding, active subscriptions, a
+  subscription-lifecycle breakdown, GB used, and an "expiring within 3 days" list.
+- **Plans** — create/edit/delete bandwidth products: service type (PPPoE/hotspot),
+  speed, up/down rate limits, price, billing cycle (days), and a data cap.
+- **Subscribers** — create customer accounts, then **Enroll** them on a plan (issues
+  the first invoice). Per-row: **Activate**, **Suspend**, **Cancel**.
+- **Invoices** — pay an unpaid/overdue invoice via **M-Pesa** (simulated STK push) or
+  **Cash** (settles instantly). A "Recent Payments" panel shows receipts and failures.
+
+**Try the money → network loop:** enroll a subscriber → the invoice is `unpaid` and the
+user is provisioned but **disabled** on the router → pay the invoice → within a moment
+the subscription flips to `active` and the user is **enabled** (watch it appear in the
+MikroTik console). Miss the cycle and it moves `grace → suspended`, disabling the user.
+
+> 🟡 **Simulated M-Pesa:** the STK push is faked server-side — ~92% succeed after a few
+> seconds, the rest fail like a real cancel/timeout. No real Daraja API. (The public
+> storefront checkout is a separate, older `setTimeout` fake, not wired to this engine.)
+
+### MikroTik console (server-backed) 📡
+The **MikroTik** tab is a live window into the RouterOS **simulator**:
+
+- Pick a router; see its **system resource** (CPU, memory, temp, voltage, uptime,
+  session count) updating every ~3 seconds.
+- Tabs for **Active** sessions (with per-session throughput and accruing totals), **PPP
+  Secrets**, **Hotspot Users** (with data-cap usage bars), and **Simple Queues**.
+- Controls: **Power** a router off/on, **disconnect** a live session, **enable/disable**
+  a user. These hit the same simulator the billing engine provisions against.
+
+> 🟢 This is a genuinely **stateful simulator** (`server/mikrotik/`), not random numbers
+> and not a connection to a physical RouterOS device. Traffic, sessions, and data caps
+> evolve on a server-side scheduler even with no browser tab open.
 
 ### Transactions
-The **Transactions** tab lists all billing/recharge history (hotspot sales,
-recharges) newest-first.
+The **Transactions** tab lists the legacy IndexedDB billing/recharge history (hotspot
+sales, recharges) newest-first. (Distinct from the server-backed **Billing** invoices.)
 
 ---
 
@@ -145,7 +171,13 @@ npm run lint   # tsc --noEmit
 
 - **I want a clean slate.**
   Clear the site's IndexedDB (`weonline` database) and `localStorage` via your browser
-  DevTools → Application tab. All accounts and admin data reset.
+  DevTools → Application tab to reset accounts + legacy admin data. To reset the
+  **billing + simulator** world, stop the server and delete `data/weonline.json` — it
+  re-seeds on the next start.
+
+- **The Billing / MikroTik tabs show an error or "Loading…".**
+  They need the Express server (`npm run dev`) running — they call `/api/*`. If you only
+  opened a static build without the server, those routes won't exist.
 
 - **I forgot my admin password.**
   There is no reset flow (local app). Clear the `weonline` IndexedDB / `localStorage`

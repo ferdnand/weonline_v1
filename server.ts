@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { mountApi } from "./server/index";
 
 async function startServer() {
   const app = express();
@@ -8,28 +9,11 @@ async function startServer() {
 
   app.use(express.json());
 
-  // MikroTik Simulation API
-  app.get("/api/mikrotik/status", (req, res) => {
-    const { ip } = req.query;
-    
-    // Simulate data for L009
-    const cpu = Math.floor(Math.random() * 15) + 5; // 5-20%
-    const memory = Math.floor(Math.random() * 20) + 40; // 40-60%
-    const temperature = Math.floor(Math.random() * 10) + 38; // 38-48°C
-    const uptime = `${Math.floor(Math.random() * 5)}d ${Math.floor(Math.random() * 24)}h ${Math.floor(Math.random() * 60)}m`;
-    const clientsCount = Math.floor(Math.random() * 50) + 10;
-
-    res.json({
-      status: "online",
-      cpu,
-      memory,
-      temperature,
-      uptime,
-      clientsCount,
-      model: "MikroTik L009UiGS-RM",
-      ip: ip || "192.168.88.1"
-    });
-  });
+  // WeOnline backend: stateful MikroTik RouterOS simulator + full billing engine.
+  // Mounts /api/mikrotik/* and /api/billing/*, seeds first-run data, and starts
+  // the ticking scheduler. The legacy /api/mikrotik/status endpoint is preserved
+  // (now serving coherent, stateful telemetry instead of random numbers).
+  mountApi(app);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

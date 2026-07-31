@@ -2,9 +2,16 @@
 
 WeOnline is a Wireless ISP (WISP) management app for a Kenyan internet provider. It
 combines a public package storefront with an admin/technician portal. It is a
-**fully standalone** app: auth + data run in the browser on **IndexedDB** (via the
-`idb` package), served through a small Express + Vite server. **No Firebase, Google
-Cloud, or any external service is used.**
+**fully standalone** app with **two backends**:
+
+1. **Browser IndexedDB** (via the `idb` package) — auth + the legacy admin CRUD
+   (clients, routers, transactions).
+2. **Express server** (`server/`) — a **stateful MikroTik RouterOS simulator** and a
+   **full-scale billing engine**, persisted to a plain JSON file
+   (`data/weonline.json`). A ticking scheduler advances the sim and runs the billing
+   cycle server-side.
+
+**No Firebase, Google Cloud, database server, or any external service is used.**
 
 ---
 
@@ -55,8 +62,42 @@ Browser (React SPA)
    │
    ├── src/data (abstraction) ──► authService + dataStore  (backend-agnostic)
    │        └── active impl: IndexedDB (local, via `idb`)   ← swap in src/data/index.ts
-   └── /api/mikrotik/status ────► Express (server.ts) — SIMULATED router telemetry
+   │
+   └── src/api/client.ts ──► Express server (server/) over REST
+            ├── /api/mikrotik/*  → stateful RouterOS simulator
+            └── /api/billing/*   → billing engine
+                        │
+   server/  Store (JSON file: data/weonline.json)
+            ├── MikrotikSimulator   users · sessions · queues · resource · tick()
+            ├── BillingEngine       plans · subscriptions · invoices · payments · reports
+            └── scheduler           sim.tick() + engine.runCycle()  (setInterval)
 ```
+
+### The server backend (`server/`)
+Assembled by `server/index.ts#mountApi(app)`, called from `server.ts`.
+
+- [`store.ts`](server/store.ts) — dependency-free JSON persistence. In-memory state,
+  debounced write-through to `data/weonline.json`, flushed on shutdown. Also `makeId`.
+- [`types.ts`](server/types.ts) — server-owned domain types (billing + sim entities).
+- [`mikrotik/simulator.ts`](server/mikrotik/simulator.ts) — `MikrotikSimulator`: per-router
+  RouterOS state (`/ppp/secret`, `/ip/hotspot/user`, `/ppp/active`, `/queue/simple`,
+  `/system/resource`). `upsertUser`/`setUserEnabled`/`removeUser` provision users;
+  `tick(nowMs, dtSec)` evolves sessions, traffic, data-cap usage, and telemetry. Uses a
+  seeded PRNG (never `Math.random`/`Date.now` at import time) so restarts resume cleanly.
+- [`billing/engine.ts`](server/billing/engine.ts) — `BillingEngine`: plans, subscribers,
+  the subscription lifecycle, recurring invoicing, payments (M-Pesa STK simulation +
+  cash/manual), provisioning hooks into the simulator, and `report()`.
+- [`mikrotik/routes.ts`](server/mikrotik/routes.ts) / [`billing/routes.ts`](server/billing/routes.ts)
+  — the REST surface. The legacy `/api/mikrotik/status` endpoint is preserved but now
+  serves **coherent, stateful** telemetry instead of random numbers.
+- [`scheduler.ts`](server/scheduler.ts) — one loop: `sim.tick()` + `settlePending()`
+  every 3s, `engine.runCycle()` every 15s.
+- [`seed.ts`](server/seed.ts) — first-run world (2 routers, 5 plans, 6 subscribers across
+  the lifecycle). Runs only when `data/weonline.json` is absent/empty.
+
+The client talks to this over [`src/api/client.ts`](src/api/client.ts) (typed fetch
+wrapper), consumed by [`src/views/BillingView.tsx`](src/views/BillingView.tsx) and
+[`src/views/MikrotikConsole.tsx`](src/views/MikrotikConsole.tsx).
 
 ### The data layer (`src/data/`)
 The app depends **only** on two interfaces — it never touches IndexedDB or any SDK
@@ -84,14 +125,20 @@ implementing the same two interfaces and swap the exports in `src/data/index.ts`
   `authService`/`dataStore` calls.
 - **Entry:** [`src/main.tsx`](src/main.tsx) → renders `<App/>` into `index.html`.
 - **Server:** [`server.ts`](server.ts) runs Vite in middleware mode during dev and
-  serves the built SPA in production. Its only API route returns **randomized** router
-  stats (CPU, memory, temp, uptime, client count).
+  serves the built SPA in production. It calls `mountApi(app)` (`server/index.ts`) to
+  mount the RouterOS simulator + billing engine and start the scheduler.
 
 ### Views (`view` state in `App.tsx`)
 - `plans` — public storefront: package cards, search, simulated M-Pesa checkout.
 - `subscriptions` — customer's active/expired packages (React state only).
 - `history` — customer payment receipts (React state only).
-- `admin` — gated by auth; sub-tabs: `dashboard`, `clients`, `routers`, `transactions`.
+- `admin` — gated by auth; sub-tabs: `dashboard`, **`billing`**, **`mikrotik`**,
+  `clients`, `routers`, `transactions`.
+  - **`billing`** ([`BillingView.tsx`](src/views/BillingView.tsx)) — Overview KPIs,
+    Plans CRUD, Subscribers + enroll, Invoices with M-Pesa/cash payment. Server-backed.
+  - **`mikrotik`** ([`MikrotikConsole.tsx`](src/views/MikrotikConsole.tsx)) — live
+    RouterOS console: resource, active sessions, PPP secrets, hotspot users, queues,
+    with power/disconnect/enable-disable controls. Server-backed, polls every 3s.
 
 ### Data model — see [`src/data/models.ts`](src/data/models.ts)
 IndexedDB object stores (formerly Firestore collections, same shapes):
@@ -113,18 +160,27 @@ IndexedDB object stores (formerly Firestore collections, same shapes):
 
 ## 5. What is real vs. simulated (IMPORTANT)
 
-This app is largely a **prototype**. Before treating anything as production-ready:
+This app is a **prototype** that now includes a genuinely stateful (but still
+**simulated**) backend. Before treating anything as production-ready:
 
-- 🟡 **M-Pesa payments** — faked with `setTimeout` in `initiatePayment`
-  ([App.tsx](src/App.tsx)). No real STK push / Daraja API integration.
-- 🟡 **MikroTik telemetry** — random numbers from `/api/mikrotik/status`
-  ([server.ts](server.ts)), polled every 10s and written back to the local store. No
-  real RouterOS API connection.
-- 🟡 **Customer subscriptions & payments** — held in React state only; lost on
-  refresh. Only admin-side `clients`, `routers`, and `transactions` persist.
-- 🟢 **Real:** local auth + admin CRUD for clients/routers + transaction logging. These
-  persist in the browser's IndexedDB (survive refresh; cleared when you clear site
-  data / IndexedDB).
+- 🟢 **MikroTik simulator** — real, coherent, stateful RouterOS behaviour (users,
+  sessions, queues, traffic, telemetry) in `server/mikrotik/`, persisted and ticked
+  server-side. It is a **simulator**, not a connection to a physical RouterOS device.
+- 🟢 **Billing engine** — real subscription lifecycle, recurring invoicing, payment
+  settlement, provisioning, and reports in `server/billing/`, persisted to
+  `data/weonline.json`.
+- 🟡 **M-Pesa STK** — the server **simulates** the STK push (`initiateMpesa` →
+  scheduler settles ~92% after ~4s). No real Daraja API. The public storefront checkout
+  in [App.tsx](src/App.tsx) is still the older `setTimeout` fake and is **not** wired to
+  the billing engine.
+- 🟡 **Public storefront subscriptions/receipts** — still React state only; lost on
+  refresh. (The admin **Billing** tab is the real, persisted path.)
+- 🟢 **Local auth + legacy admin CRUD** (clients/routers/transactions) — persist in the
+  browser's IndexedDB as before.
+
+> ⚠️ **No server-side authorization.** The `/api/*` routes are unauthenticated — any
+> client can call them. Role checks remain a client-side UI gate only (see
+> `AUTHORIZATION.md`). Add real auth/authz before any shared or public deployment.
 
 ---
 
@@ -136,12 +192,26 @@ weonline_v1/
 │   ├── App.tsx                  # UI + logic (large single file)
 │   ├── main.tsx                 # React entry point
 │   ├── index.css                # Tailwind entry
-│   └── data/                    # Backend-agnostic data layer
+│   ├── api/
+│   │   └── client.ts            # Typed REST client for the server backend
+│   ├── views/
+│   │   ├── BillingView.tsx      # Admin "Billing" sub-tab (server-backed)
+│   │   └── MikrotikConsole.tsx  # Admin "MikroTik" sub-tab (server-backed)
+│   └── data/                    # Backend-agnostic data layer (IndexedDB)
 │       ├── index.ts             # Backend selector (active: IndexedDB)
 │       ├── types.ts             # AuthService + DataStore contracts
 │       ├── models.ts            # Domain models
 │       └── indexeddb/           # Local backend (active): db, store, auth
-├── server.ts                    # Express + Vite dev/prod server, mock MikroTik API
+├── server/                      # Express backend: sim + billing engine
+│   ├── index.ts                 # mountApi(app): wires store/sim/engine/scheduler
+│   ├── store.ts                 # JSON-file persistence + makeId
+│   ├── types.ts                 # Server domain types
+│   ├── scheduler.ts             # Ticking loop (sim.tick + billing cycle)
+│   ├── seed.ts                  # First-run seed world
+│   ├── mikrotik/                # simulator.ts + routes.ts
+│   └── billing/                 # engine.ts + routes.ts
+├── data/                        # Runtime state (weonline.json) — gitignored
+├── server.ts                    # Express + Vite dev/prod server; calls mountApi
 ├── index.html                   # SPA host page
 ├── metadata.json                # App manifest (name/description)
 ├── vite.config.ts               # Vite + Tailwind + React config
