@@ -1,20 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# WeOnline — ISP Portal & MikroTik Manager
 
-# Run and deploy your AI Studio app
+A standalone Wireless ISP (WISP) management app: a public package storefront plus an
+admin/technician portal for managing clients, routers, and billing.
 
-This contains everything you need to run your app locally.
+**Fully local — no cloud required.** Auth and data run entirely in the browser on
+IndexedDB (via the [`idb`](https://www.npmjs.com/package/idb) package). There is no
+Firebase, Google Cloud, or any external service dependency.
 
-View your app in AI Studio: https://ai.studio/apps/6ad08a2f-c71d-43b1-a07a-d907562bbcc8
+## Run locally
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js 18+
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```
+   npm install
+   ```
+2. Start the app:
+   ```
+   npm run dev
+   ```
+3. Open http://localhost:3000
+
+No environment variables or backend setup are required. Admin accounts and data are
+stored in your browser's IndexedDB (survive refresh; cleared when you clear site data).
+
+See [`PROCESS.md`](PROCESS.md) for architecture and build details, [`TUTORIAL.md`](TUTORIAL.md)
+for a feature walkthrough, and [`AUTHORIZATION.md`](AUTHORIZATION.md) for the access model.

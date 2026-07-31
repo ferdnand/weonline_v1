@@ -158,7 +158,7 @@ export default function App() {
   const [checkoutStep, setCheckoutStep] = useState<'idle' | 'phone' | 'processing' | 'connecting' | 'success'>('idle');
   const [phoneNumber, setPhoneNumber] = useState('');
   
-  // Firebase State
+  // Auth + data-layer state (see src/data/*)
   const [user, setUser] = useState<AuthUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -286,20 +286,6 @@ export default function App() {
     setLoginError('');
   };
 
-  const handleGoogleLogin = async () => {
-    try {
-      await authService.signInWithGoogle();
-      setIsLoginModalOpen(false);
-    } catch (error: any) {
-      if (error.code === 'auth/popup-closed-by-user') {
-        setLoginError('Login was cancelled. Please try again if you wish to sign in.');
-      } else {
-        console.error("Google login failed:", error);
-        setLoginError(error.message || 'Google login failed. Please try again.');
-      }
-    }
-  };
-
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -315,11 +301,7 @@ export default function App() {
       setIsSignUp(false);
     } catch (error: any) {
       console.error("Auth failed:", error);
-      if (error.code === 'auth/operation-not-allowed') {
-        setLoginError('Email/Password authentication is not enabled in your Firebase project. Please enable it in the Firebase Console under Authentication > Sign-in method.');
-      } else {
-        setLoginError(error.message || 'Authentication failed.');
-      }
+      setLoginError(error.message || 'Authentication failed.');
     }
   };
 
@@ -407,7 +389,7 @@ export default function App() {
           status: 'completed'
         };
 
-        // If it's a hotspot client, we could also record it in Firestore if we wanted to track all sales
+        // Record the guest hotspot sale in the transactions collection
         try {
           await dataStore.add('transactions', {
             clientId: 'guest',
@@ -589,23 +571,6 @@ export default function App() {
                 </button>
               </div>
               <div className="p-8 space-y-6">
-                <button 
-                  onClick={handleGoogleLogin}
-                  className="w-full py-3 px-4 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-slate-50 transition-all"
-                >
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-                  Continue with Google
-                </button>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-slate-100"></div>
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-slate-400 font-bold tracking-widest">Or with email</span>
-                  </div>
-                </div>
-
                 <form onSubmit={handleEmailLogin} className="space-y-4">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-slate-500 uppercase">Email Address</label>

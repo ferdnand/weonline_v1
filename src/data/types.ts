@@ -1,11 +1,9 @@
 /**
  * Backend-agnostic contracts for authentication and data access.
  *
- * The app (src/App.tsx) depends ONLY on these interfaces — never on firebase/*,
- * IndexedDB, or any future SDK directly. Concrete implementations live under
- * src/data/<provider>/ and are selected in src/data/index.ts.
- *
- * See MIGRATION.md for the rationale and phased plan.
+ * The app (src/App.tsx) depends ONLY on these interfaces — never on IndexedDB or
+ * any future SDK directly. Concrete implementations live under src/data/<provider>/
+ * and are selected in src/data/index.ts.
  */
 
 /** Minimal, provider-neutral view of a signed-in user. */
@@ -23,11 +21,11 @@ export interface AuthService {
    */
   onAuthStateChanged(cb: (user: AuthUser | null) => void): () => void;
 
+  /** Synchronous snapshot of the current session (null if signed out / not yet loaded). */
+  getCurrentUser(): AuthUser | null;
+
   signInWithEmail(email: string, password: string): Promise<void>;
   signUpWithEmail(email: string, password: string): Promise<void>;
-
-  /** May reject with an "unsupported" error on backends without Google OAuth. */
-  signInWithGoogle(): Promise<void>;
 
   signOut(): Promise<void>;
 }
@@ -38,8 +36,8 @@ export interface SubscribeOptions {
 
 /**
  * Generic document store over named collections. Documents are plain objects
- * identified by a string `id`. Modeled on the subset of Firestore the app uses,
- * so it maps cleanly onto Firestore, IndexedDB, Supabase, or a REST backend.
+ * identified by a string `id`. A small, provider-neutral CRUD + realtime surface
+ * that maps cleanly onto IndexedDB, a REST/SQL backend, or similar.
  */
 export interface DataStore {
   get<T>(collection: string, id: string): Promise<T | null>;

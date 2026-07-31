@@ -25,23 +25,12 @@ bun install
 
 ### 2. No backend setup needed 🎉
 
-Out of the box, WeOnline uses a **local IndexedDB backend** — all data (accounts,
-clients, routers, transactions) is stored in your browser. **No Firebase project, no
-config, and no network are required to run it.** Skip straight to step 4.
+WeOnline uses a **local IndexedDB backend** — all data (accounts, clients, routers,
+transactions) is stored in your browser. **No cloud accounts, config, API keys, or
+network are required.** No environment variables either (`.env.example` is just a
+placeholder). Skip straight to step 3.
 
-> Want to run against Firebase instead? Edit the two exports in
-> [`src/data/index.ts`](src/data/index.ts) to use the `./firebase/*` implementations,
-> then fill in `firebase-applet-config.json` and deploy `firestore.rules`. See
-> [`MIGRATION.md`](MIGRATION.md).
-
-### 3. (Optional) Environment variables
-
-```bash
-cp .env.example .env.local
-```
-`GEMINI_API_KEY` is only needed for future Gemini features; the app runs without it.
-
-### 4. Start the dev server
+### 3. Start the dev server
 
 ```bash
 npm run dev
@@ -72,7 +61,7 @@ No login is required to browse and "buy" packages.
 
 > 🟡 **Simulated:** No real payment happens. The flow uses timers, and a random MAC
 > address + transaction ID are generated. A `hotspot_sale` record *is* written to the
-> Firestore `transactions` collection.
+> local `transactions` store.
 
 ### View subscriptions & receipts
 - **Subscriptions** — shows active/expired packages with live "time remaining".
@@ -88,13 +77,11 @@ No login is required to browse and "buy" packages.
 
 ### Sign in
 1. Click **Admin Login** (top right).
-2. On the local (IndexedDB) backend, use **email + password** — click *Need an account?
-   Sign up* to create one. Accounts are stored in your browser.
+2. Use **email + password** — click *Need an account? Sign up* to create one. Accounts
+   are stored locally in your browser (salted-SHA-256 hashed).
    - The email **`mongeta5@gmail.com`** is bootstrapped as `admin`. Any other account
      becomes a `technician`. (Change this hardcoded email in `src/App.tsx` before real
      use.)
-   - **Google sign-in is disabled in local mode** (it needs Firebase). It works only if
-     you switch to the Firebase backend.
 3. An **Admin Portal** tab appears in the nav once you're signed in.
 
 > 💾 Your accounts and admin data live in the browser's IndexedDB. They survive
@@ -156,38 +143,29 @@ npm run lint   # tsc --noEmit
 
 ## Part 5 — Troubleshooting
 
-- **I want a clean slate (local backend).**
+- **I want a clean slate.**
   Clear the site's IndexedDB (`weonline` database) and `localStorage` via your browser
   DevTools → Application tab. All accounts and admin data reset.
 
-- **"Google sign-in is not available in local mode."**
-  Expected — use email + password, or switch to the Firebase backend.
+- **I forgot my admin password.**
+  There is no reset flow (local app). Clear the `weonline` IndexedDB / `localStorage`
+  as above and sign up again.
 
 - **Admin tab doesn't appear.**
   It only shows after a successful sign-in (`userProfile` is set).
 
-### Firebase backend only (if you switched in `src/data/index.ts`)
-
-- **"Missing or insufficient permissions" when adding a router.**
-  The shipped `isValidRouter` rule in `firestore.rules` only permits
-  `name, location, ipAddress, status`, but the app writes many more fields. Update the
-  validator to allow the full router field set, then redeploy the rules.
-
-- **Login fails with `auth/operation-not-allowed`.**
-  Enable that sign-in method in Firebase Console → Authentication → Sign-in method.
-
-- **"The client is offline" console error.**
-  Check `firebase-applet-config.json` — the config or `firestoreDatabaseId` is likely
-  wrong.
+- **My data disappeared.**
+  IndexedDB is per-browser-profile and per-origin. A different browser, profile, or
+  incognito window has its own empty database, and clearing site data wipes it.
 
 ---
 
 ## Where to go next
 
 - Read [`PROCESS.md`](PROCESS.md) for the full architecture, build pipeline, and the
-  list of known tech debt.
-- Real production use would require wiring up the **M-Pesa Daraja API**, a genuine
-  **MikroTik RouterOS API** integration, and persisting customer subscriptions to
-  Firestore.
+  list of known tech debt, and [`AUTHORIZATION.md`](AUTHORIZATION.md) for the access model.
+- Real production use would require a shared backend with **server-side authorization**
+  (see `AUTHORIZATION.md`), plus wiring up the **M-Pesa Daraja API**, a genuine
+  **MikroTik RouterOS API** integration, and persisting customer subscriptions.
 
 Update this tutorial whenever features are added or the user-facing flow changes.

@@ -1,12 +1,16 @@
 /**
- * AuthService implementation backed by IndexedDB.
+ * AuthService implementation backed by IndexedDB — standalone username/password
+ * auth for the local backend.
  *
- * Local email/password auth for the offline backend. Credentials are stored in
- * the `auth_users` object store; the active session id is kept in localStorage.
+ * The login identifier is the user's EMAIL (the app's UI and `users` profile
+ * collection are email-based), so "username" here == email. Credentials live in
+ * the `auth_users` object store; the active session uid is kept in localStorage
+ * (and mirrored in the in-memory `currentUser`).
  *
- * SECURITY NOTE: passwords are salted + SHA-256 hashed for basic hygiene, but this
- * is a LOCAL DEV backend only — it is not a substitute for real server-side auth.
- * The real backend (Supabase, see MIGRATION.md) replaces this entirely.
+ * SECURITY NOTE: passwords are salted + SHA-256 hashed via the Web Crypto API for
+ * basic hygiene. This is NOT bank-grade security — SHA-256 is fast and lacks the
+ * key-stretching (bcrypt/scrypt/argon2) a server-side auth system would use. It
+ * is adequate for a standalone, single-user, browser-local admin app only.
  */
 
 import type { AuthService, AuthUser } from '../types';
@@ -20,6 +24,7 @@ interface AuthRecord {
   passwordHash: string;
   salt: string;
   displayName: string | null;
+  createdAt: string; // ISO timestamp
 }
 
 let currentUser: AuthUser | null = null;
@@ -90,6 +95,11 @@ export const indexedDbAuth: AuthService = {
     };
   },
 
+  /** Synchronous snapshot of the active session (may be null until the first load resolves). */
+  getCurrentUser(): AuthUser | null {
+    return currentUser;
+  },
+
   async signUpWithEmail(email: string, password: string): Promise<void> {
     await ensureReady();
     if (await findByEmail(email)) {
@@ -102,6 +112,7 @@ export const indexedDbAuth: AuthService = {
       passwordHash: await hashPassword(password, salt),
       salt,
       displayName: null,
+      createdAt: new Date().toISOString(),
     };
     await idbPut(AUTH_STORE, record);
     setSession(toAuthUser(record));
@@ -114,12 +125,6 @@ export const indexedDbAuth: AuthService = {
     const hash = await hashPassword(password, rec.salt);
     if (hash !== rec.passwordHash) throw new Error('Incorrect password.');
     setSession(toAuthUser(rec));
-  },
-
-  async signInWithGoogle(): Promise<void> {
-    throw new Error(
-      'Google sign-in is not available in local mode. Please use email and password.',
-    );
   },
 
   async signOut(): Promise<void> {
