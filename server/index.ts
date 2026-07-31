@@ -9,6 +9,8 @@ import { MikrotikManager } from './mikrotik/manager';
 import { BillingEngine } from './billing/engine';
 import { mikrotikRoutes } from './mikrotik/routes';
 import { billingRoutes } from './billing/routes';
+import { authRoutes } from './auth/routes';
+import { requireAuth, requireAdminForDeletes } from './auth/middleware';
 import { startScheduler } from './scheduler';
 import { seedIfEmpty } from './seed';
 
@@ -26,10 +28,13 @@ export async function mountApi(app: Express): Promise<Backend> {
 
   await seedIfEmpty(store, mik, engine);
 
-  app.use('/api/mikrotik', mikrotikRoutes(store, mik));
-  app.use('/api/billing', billingRoutes(engine));
-
+  // Public: auth + health. Everything else requires a valid session, and DELETEs
+  // additionally require the admin role (mirrors the former Firestore rules).
+  app.use('/api/auth', authRoutes(store));
   app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+  app.use('/api/mikrotik', requireAuth, requireAdminForDeletes, mikrotikRoutes(store, mik));
+  app.use('/api/billing', requireAuth, requireAdminForDeletes, billingRoutes(engine));
 
   const stopScheduler = startScheduler(mik, engine);
 

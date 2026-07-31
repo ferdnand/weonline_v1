@@ -14,10 +14,14 @@
 
 import type { AuthService, DataStore } from './types';
 
-import { indexedDbAuth } from './indexeddb/auth';
 import { indexedDbStore } from './indexeddb/store';
+import { serverAuth } from './server/auth';
 
-export const authService: AuthService = indexedDbAuth;
+// Auth is now the server's responsibility (real authorization boundary): login
+// returns a signed token the API client sends on every request. The legacy admin
+// CRUD (clients/routers/transactions in the marketing/demo UI) still uses the
+// browser-local IndexedDB store.
+export const authService: AuthService = serverAuth;
 export const dataStore: DataStore = indexedDbStore;
 
 // Re-export contracts + domain models so callers import everything from './data'.

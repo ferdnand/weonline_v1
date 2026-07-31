@@ -24,6 +24,13 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
   const routerByIp = (ip: string): RouterRecord | undefined =>
     d().routers.find((x) => x.ipAddress === ip);
 
+  // Never serialize the router's REST password to a client. The username is kept
+  // (the UI needs it to show which account is configured); the secret is not.
+  const publicRouter = (rec: RouterRecord): Omit<RouterRecord, 'password'> => {
+    const { password: _password, ...safe } = rec;
+    return safe;
+  };
+
   // ── Legacy/compat telemetry endpoint (coherent, not random) ─────────────────
   r.get('/status', (req, res) => {
     const ip = (req.query.ip as string) || '';
@@ -53,7 +60,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
       d().routers.map((rec) => {
         const s = mik.get(rec.id);
         return {
-          ...rec,
+          ...publicRouter(rec),
           online: s?.online ?? false,
           resource: s?.resource,
           activeSessions: s?.activeSessions.length ?? 0,
@@ -69,7 +76,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     const rec = routerById(req.params.id);
     if (!rec) return res.status(404).json({ error: 'router not found' });
     const s = mik.get(rec.id);
-    res.json({ router: rec, sim: s ?? null, uptime: s ? fmtUptime(s.resource.uptimeSec) : null });
+    res.json({ router: publicRouter(rec), sim: s ?? null, uptime: s ? fmtUptime(s.resource.uptimeSec) : null });
   });
 
   // Create / update a router. Accepts the driver + live-connection fields.
@@ -77,6 +84,21 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     const b = req.body || {};
     const driver: RouterDriver = b.driver === 'live' ? 'live' : 'simulator';
     const tls = driver === 'live' ? b.tls !== false : false; // live defaults to HTTPS
+
+    // SSRF guard: a live router causes the server to make authenticated requests
+    // to its address. Restrict that to private LAN ranges so the API can't be
+    // abused to reach the internet, localhost, or cloud metadata (169.254.169.254).
+    if (driver === 'live' && process.env.ROUTER_ALLOW_ANY_HOST !== '1') {
+      const ip = String(b.ipAddress || '');
+      if (!isPrivateIpv4(ip)) {
+        return res.status(400).json({
+          error:
+            'Live routers must use a private LAN IPv4 (10.x, 172.16–31.x, or 192.168.x). ' +
+            'Set ROUTER_ALLOW_ANY_HOST=1 to override (reduces SSRF protection).',
+        });
+      }
+    }
+
     const id = b.id || `rtr_${Math.abs(hash(b.ipAddress || String(now())))}`;
     const existing = routerById(id);
     const rec: RouterRecord = {
@@ -94,7 +116,8 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
       password: b.password ?? existing?.password ?? '',
       driver,
       tls,
-      insecureTls: driver === 'live' ? b.insecureTls !== false : false, // default: accept self-signed on LAN
+      // Default to verifying TLS; accepting a self-signed cert is an explicit opt-in.
+      insecureTls: driver === 'live' ? b.insecureTls === true : false,
       lastError: existing?.lastError,
       lastPolledAt: existing?.lastPolledAt,
     };
@@ -102,7 +125,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     else d().routers.push(rec);
     mik.ensureRouter(rec.id, rec.identity, rec.model, now());
     store.save();
-    res.json(rec);
+    res.json(publicRouter(rec));
   });
 
   r.delete('/routers/:id', (req, res) => {
@@ -192,6 +215,23 @@ function fmtUptime(sec: number): string {
   const h = Math.floor((sec % 86400) / 3600);
   const m = Math.floor((sec % 3600) / 60);
   return `${d}d ${h}h ${m}m`;
+}
+
+/**
+ * True only for RFC1918 private IPv4 addresses (10/8, 172.16/12, 192.168/16).
+ * Deliberately rejects public IPs, loopback (127/8), and link-local/metadata
+ * (169.254/16) to contain SSRF via the live-router driver.
+ */
+function isPrivateIpv4(ip: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip.trim());
+  if (!m) return false;
+  const o = m.slice(1).map(Number);
+  if (o.some((n) => n > 255)) return false;
+  const [a, b] = o;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
 }
 
 function hash(s: string): number {

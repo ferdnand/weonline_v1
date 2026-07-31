@@ -78,15 +78,22 @@ No login is required to browse and "buy" packages.
 
 ### Sign in
 1. Click **Admin Login** (top right).
-2. Use **email + password** — click *Need an account? Sign up* to create one. Accounts
-   are stored locally in your browser (salted-SHA-256 hashed).
-   - The email **`mongeta5@gmail.com`** is bootstrapped as `admin`. Any other account
-     becomes a `technician`. (Change this hardcoded email in `src/App.tsx` before real
-     use.)
+2. Use **email + password**. Accounts now live on the **server** (PBKDF2-hashed), and
+   the API requires a signed session token — the app handles this for you on login.
+   - **First run:** there are no accounts yet, so the form shows *Create Admin Account*.
+     The **first** person to sign up becomes the `admin`. (Password must be ≥ 8 chars.)
+   - After that first account, **self-registration is closed** (the *Sign up* toggle
+     disappears). An admin creates further staff accounts via the API:
+     ```bash
+     curl -X POST http://localhost:3000/api/auth/users \
+       -H "Authorization: Bearer <admin-token>" -H 'Content-Type: application/json' \
+       -d '{"email":"tech@weonline.net","password":"<≥8 chars>","role":"technician"}'
+     ```
 3. An **Admin Portal** tab appears in the nav once you're signed in.
 
-> 💾 Your accounts and admin data live in the browser's IndexedDB. They survive
-> refreshes but are wiped if you clear site data or use a different browser/profile.
+> 🔐 Sessions last 12h and are signed with `AUTH_SECRET`. If that isn't set, an
+> ephemeral secret is used and everyone is logged out on server restart — set it in
+> `.env.local` for a stable setup (see `.env.example`).
 
 ### Dashboard
 A quick overview with four stat cards:
@@ -182,15 +189,21 @@ curl -k -u weonline:<password> https://192.168.88.1/rest/system/resource
 ### 2. Add it in the app
 Admin → **MikroTik** → **Add Router**:
 - **Driver:** *Live — real RouterOS device (REST)*
-- **IP address:** `192.168.88.1`, **REST port:** `443` (HTTPS) or `80` (HTTP)
+- **IP address:** a **private LAN IPv4** — `10.x`, `172.16–31.x`, or `192.168.x` (e.g.
+  `192.168.88.1`). Public/other addresses are rejected as an SSRF safeguard (override with
+  `ROUTER_ALLOW_ANY_HOST=1` only if you truly need a routable router).
+- **REST port:** `443` (HTTPS) or `80` (HTTP)
 - **Username / Password:** the `weonline` API user
-- **Use HTTPS** + **Accept self-signed certificate** (the L009's cert is self-signed on a LAN)
+- **Use HTTPS** — leave **Accept self-signed certificate** *unchecked* to verify the cert.
+  The L009's cert is self-signed on a LAN, so you'll usually need to **check** this box;
+  it's off by default so accepting an unverified cert is a conscious choice.
 
 Click **Save**, then **Test** — you should see the real model, RouterOS version, and uptime.
 The console tabs now show the router's **real** sessions, secrets, and queues.
 
-> 🔐 The API password is stored in `data/weonline.json` (plaintext on disk). To keep it
-> out of that file, set `ROUTER_<ID>_PASSWORD` in `.env.local` (see `.env.example`).
+> 🔐 The API password is **encrypted at rest** in `data/weonline.json` (AES-256-GCM). To
+> keep it out of that file entirely, set `ROUTER_<ID>_PASSWORD` in `.env.local` (see
+> `.env.example`) — the env value then overrides the stored one.
 
 ### 3. Provision a real user
 Billing → **Subscribers** → create a subscriber **on the L009 router** → **Enroll** on a
@@ -229,18 +242,21 @@ npm run lint   # tsc --noEmit
 ## Part 5 — Troubleshooting
 
 - **I want a clean slate.**
-  Clear the site's IndexedDB (`weonline` database) and `localStorage` via your browser
-  DevTools → Application tab to reset accounts + legacy admin data. To reset the
-  **billing + simulator** world, stop the server and delete `data/weonline.json` — it
-  re-seeds on the next start.
+  Accounts, billing, and the simulator world all live server-side in
+  `data/weonline.json` — stop the server and delete it to reset everything (it re-seeds,
+  and the next sign-up becomes the new admin). The browser's IndexedDB / `localStorage`
+  now only hold the legacy admin CRUD + your session token; clear them via DevTools →
+  Application if you also want those gone.
 
 - **The Billing / MikroTik tabs show an error or "Loading…".**
   They need the Express server (`npm run dev`) running — they call `/api/*`. If you only
   opened a static build without the server, those routes won't exist.
 
 - **I forgot my admin password.**
-  There is no reset flow (local app). Clear the `weonline` IndexedDB / `localStorage`
-  as above and sign up again.
+  There is no self-service reset yet. Another admin can create you a new account via
+  `POST /api/auth/users`. If no admin is reachable, stop the server, remove your entry
+  from the `users` array in `data/weonline.json` (or empty the array to re-bootstrap),
+  then restart and sign up again — the first sign-up becomes admin.
 
 - **Admin tab doesn't appear.**
   It only shows after a successful sign-in (`userProfile` is set).

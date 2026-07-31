@@ -13,13 +13,30 @@
 import fs from 'fs';
 import path from 'path';
 import type { StoreData } from './types';
+import { decryptField, encryptField } from './crypto';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'weonline.json');
 
+// Credential fields that must be encrypted on disk (they can't be one-way hashed
+// because RouterOS needs the cleartext to provision users).
+function decryptSecrets(data: StoreData): void {
+  for (const r of data.routers) if (typeof r.password === 'string') r.password = decryptField(r.password);
+  for (const s of data.subscribers) if (typeof s.password === 'string') s.password = decryptField(s.password);
+}
+
+/** Deep clone with credential fields encrypted — used only for the on-disk form. */
+function toEncryptedDisk(data: StoreData): StoreData {
+  const copy: StoreData = JSON.parse(JSON.stringify(data));
+  for (const r of copy.routers) if (typeof r.password === 'string') r.password = encryptField(r.password);
+  for (const s of copy.subscribers) if (typeof s.password === 'string') s.password = encryptField(s.password);
+  return copy;
+}
+
 function emptyStore(): StoreData {
   return {
     meta: { seeded: false, invoiceSeq: 0, version: 1 },
+    users: [],
     plans: [],
     subscribers: [],
     subscriptions: [],
@@ -45,7 +62,10 @@ export class Store {
         const raw = fs.readFileSync(DATA_FILE, 'utf-8');
         const parsed = JSON.parse(raw) as StoreData;
         // Merge onto a fresh skeleton so new collections added later are present.
-        return { ...emptyStore(), ...parsed, meta: { ...emptyStore().meta, ...parsed.meta } };
+        const data = { ...emptyStore(), ...parsed, meta: { ...emptyStore().meta, ...parsed.meta } };
+        // Bring encrypted credential fields back to cleartext in memory.
+        decryptSecrets(data);
+        return data;
       }
     } catch (err) {
       console.error('[store] failed to load, starting fresh:', err);
@@ -69,7 +89,7 @@ export class Store {
     if (!this.dirty) return;
     try {
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.writeFileSync(DATA_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
+      fs.writeFileSync(DATA_FILE, JSON.stringify(toEncryptedDisk(this.data), null, 2), 'utf-8');
       this.dirty = false;
     } catch (err) {
       console.error('[store] failed to flush:', err);

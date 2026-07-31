@@ -180,6 +180,9 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
+  // Open self-registration is only available to bootstrap the first (admin)
+  // account; afterwards accounts are admin-created and the toggle is hidden.
+  const [registrationOpen, setRegistrationOpen] = useState(false);
 
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([
     {
@@ -211,21 +214,21 @@ export default function App() {
     const unsubscribe = authService.onAuthStateChanged(async (authUser) => {
       setUser(authUser);
       if (authUser) {
+        // The server is the source of truth for role (it enforces authz on every
+        // API call). Trust authUser.role; fall back to the legacy rule only if a
+        // backend somehow omits it. The IndexedDB profile is a UI-only cache.
         const existing = await dataStore.get<UserProfile>('users', authUser.uid);
-        if (existing) {
-          setUserProfile(existing);
-        } else {
-          // Default admin for the first user if it matches the email
-          const isAdmin = authUser.email === 'mongeta5@gmail.com';
-          const profile: UserProfile = {
-            uid: authUser.uid,
-            email: authUser.email || '',
-            role: isAdmin ? 'admin' : 'technician',
-            name: authUser.displayName || 'User'
-          };
-          await dataStore.set('users', authUser.uid, profile);
-          setUserProfile(profile);
-        }
+        // Role is authoritative from the server; default to the least-privileged
+        // role if a backend ever omits it.
+        const role = authUser.role ?? 'technician';
+        const profile: UserProfile = {
+          uid: authUser.uid,
+          email: authUser.email || '',
+          role,
+          name: authUser.displayName || existing?.name || 'User',
+        };
+        await dataStore.set('users', authUser.uid, profile);
+        setUserProfile(profile);
       } else {
         setUserProfile(null);
         if (view === 'admin') setView('plans');
@@ -234,6 +237,18 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [view]);
+
+  // Whether the backend still allows open self-registration (first-run bootstrap).
+  useEffect(() => {
+    fetch('/api/auth/registration-open')
+      .then((r) => r.json())
+      .then((d) => {
+        const open = !!d.open;
+        setRegistrationOpen(open);
+        setIsSignUp(open); // first run → default to the Create-Admin form
+      })
+      .catch(() => setRegistrationOpen(false));
+  }, []);
 
   // Data Fetching Effect
   useEffect(() => {
@@ -612,14 +627,16 @@ export default function App() {
                   </button>
                 </form>
 
-                <div className="text-center">
-                  <button 
-                    onClick={() => setIsSignUp(!isSignUp)}
-                    className="text-sm font-bold text-slate-500 hover:text-orange-600 transition-colors"
-                  >
-                    {isSignUp ? 'Already have an account? Login' : 'Need an account? Sign up'}
-                  </button>
-                </div>
+                {registrationOpen && (
+                  <div className="text-center">
+                    <button
+                      onClick={() => setIsSignUp(!isSignUp)}
+                      className="text-sm font-bold text-slate-500 hover:text-orange-600 transition-colors"
+                    >
+                      {isSignUp ? 'Already have an account? Login' : 'Need an account? Sign up'}
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>

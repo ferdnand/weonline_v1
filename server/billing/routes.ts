@@ -4,6 +4,7 @@
 
 import { Router as ExpressRouter } from 'express';
 import { BillingEngine } from './engine';
+import { generatePassword } from '../crypto';
 
 export function billingRoutes(engine: BillingEngine): ExpressRouter {
   const r = ExpressRouter();
@@ -59,7 +60,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
         type: b.type === 'pppoe' ? 'pppoe' : 'hotspot',
         routerId: b.routerId,
         username: b.username,
-        password: b.password || Math.random().toString(36).slice(2, 10),
+        password: b.password || generatePassword(),
         macAddress: b.macAddress,
       },
       now(),

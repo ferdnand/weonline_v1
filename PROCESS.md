@@ -4,12 +4,12 @@ WeOnline is a Wireless ISP (WISP) management app for a Kenyan internet provider.
 combines a public package storefront with an admin/technician portal. It is a
 **fully standalone** app with **two backends**:
 
-1. **Browser IndexedDB** (via the `idb` package) — auth + the legacy admin CRUD
-   (clients, routers, transactions).
-2. **Express server** (`server/`) — a **stateful MikroTik RouterOS simulator** and a
-   **full-scale billing engine**, persisted to a plain JSON file
-   (`data/weonline.json`). A ticking scheduler advances the sim and runs the billing
-   cycle server-side.
+1. **Express server** (`server/`) — the authoritative backend: **server-side auth**
+   (the real authorization boundary), a **stateful MikroTik RouterOS simulator**, and a
+   **full-scale billing engine**, persisted to a plain JSON file (`data/weonline.json`).
+   A ticking scheduler advances the sim and runs the billing cycle server-side.
+2. **Browser IndexedDB** (via the `idb` package) — the legacy admin CRUD only
+   (clients, routers, transactions). Auth is **no longer** browser-local.
 
 **No Firebase, Google Cloud, database server, or any external service is used.**
 
@@ -25,18 +25,29 @@ combines a public package storefront with an admin/technician portal. It is a
   - **bun**: `bun install`
   - Do not mix.
 
-No cloud accounts, API keys, or environment variables are required.
+No cloud accounts or API keys are required. A few **environment variables** are read
+(see below) — all optional for local dev, but some are required for production.
 
 ---
 
 ## 2. Environment setup
 
-Nothing to configure. The active backend is **local IndexedDB** (selected in
-[`src/data/index.ts`](src/data/index.ts)), so the app runs offline out of the box —
-just install and `npm run dev`.
+Copy [`.env.example`](.env.example) to `.env.local` (gitignored). Variables are loaded
+by [`server/loadenv.ts`](server/loadenv.ts) (imported first in `server.ts`) from
+`.env.local` then `.env`; OS-level vars win.
 
-`.env.example` is an empty placeholder; copy it to `.env.local` (gitignored) only if
-you later add config of your own. No variables are read by the app today.
+| Variable | Purpose | Dev | Production |
+|----------|---------|-----|------------|
+| `AUTH_SECRET` | HMAC key that signs API session tokens. | Optional (an ephemeral one is generated; sessions reset on restart) | **Required** — long random value |
+| `DATA_ENCRYPTION_KEY` | 32-byte key (64 hex) to encrypt credential fields at rest. | Optional (derived from `AUTH_SECRET` if unset) | Recommended (explicit key) |
+| `HOST` | Bind address. Defaults to `127.0.0.1` (API not exposed on the network). | — | Set `0.0.0.0` only behind an authenticating reverse proxy / VPN |
+| `ROUTER_<ID>_PASSWORD` | Per-router live REST password, keeps it out of `data/weonline.json`. | Optional | Recommended for live routers |
+| `ROUTER_ALLOW_ANY_HOST` | `1` disables the private-IP SSRF guard on live routers. | Optional | Leave unset unless a routable router is required |
+
+Generate secrets with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+**First run:** there are no accounts yet. The **first** person to sign up becomes the
+`admin`; afterwards self-registration is closed and an admin creates further accounts.
 
 ---
 
@@ -92,8 +103,18 @@ surfaced on `RouterRecord.lastError`.
 ### The server backend (`server/`)
 Assembled by `server/index.ts#mountApi(app)` (async), called from `server.ts`.
 
+- [`auth/`](server/auth/) — **server-side authentication (the authorization boundary).**
+  `service.ts` (PBKDF2-hashed accounts, first user bootstraps as `admin`), `tokens.ts`
+  (stateless HMAC-signed session tokens, `AUTH_SECRET`), `middleware.ts` (`requireAuth` +
+  admin-only DELETEs), `routes.ts` (`/api/auth/register|login|me|logout|users`,
+  registration-open). Login/register are rate-limited. `/api/mikrotik` and `/api/billing`
+  are mounted behind `requireAuth`.
+- [`crypto.ts`](server/crypto.ts) — `generatePassword()` (crypto-random) and AES-256-GCM
+  field encryption used by the store to encrypt credential fields at rest.
+- [`loadenv.ts`](server/loadenv.ts) — side-effect env loader; imported first in `server.ts`.
 - [`store.ts`](server/store.ts) — dependency-free JSON persistence. In-memory state,
-  debounced write-through to `data/weonline.json`, flushed on shutdown. Also `makeId`.
+  debounced write-through to `data/weonline.json`, flushed on shutdown. Router/subscriber
+  passwords are **encrypted at rest** (decrypted into memory on load). Also `makeId`.
 - [`types.ts`](server/types.ts) — server-owned domain types (billing + sim entities),
   `RouterRecord` (incl. `driver`/`tls`/`insecureTls`/`lastError`), and `ProvisionSpec`.
 - [`mikrotik/driver.ts`](server/mikrotik/driver.ts) — the `MikrotikDriver` interface both
@@ -134,18 +155,21 @@ directly.
 - [`models.ts`](src/data/models.ts) — domain models (`Client`, `Router`, etc.),
   extracted out of `App.tsx`. This is the single source of truth for document shapes.
 - [`index.ts`](src/data/index.ts) — **the one place a backend is chosen.** Exports
-  `authService` + `dataStore`.
-- `indexeddb/` — the **active** local backend:
+  `authService` (now **server-backed**) + `dataStore` (IndexedDB).
+- `server/auth.ts` — `AuthService` that calls `/api/auth/*`, stores the session token,
+  and re-validates it against `/api/auth/me` on load. Role comes from the server.
+- `indexeddb/` — the local backend for the **legacy admin CRUD** only:
   - `db.ts` — thin `idb` wrapper; one object store per collection
-    (`users`, `clients`, `routers`, `transactions`) plus `auth_users` for credentials.
+    (`users`, `clients`, `routers`, `transactions`).
   - `store.ts` — `DataStore` over IndexedDB, with an in-memory pub/sub layer that
     emulates realtime `subscribe` (IndexedDB has no native change events, so every
     mutation re-emits the affected collection to its listeners).
-  - `auth.ts` — salted-SHA-256 username/password auth (the "username" is the email);
-    session uid in `localStorage` + in-memory `currentUser`.
 
-To add another backend (e.g. a self-hosted REST API), create `src/data/<provider>/`
-implementing the same two interfaces and swap the exports in `src/data/index.ts`.
+> The old browser-local `indexeddb/auth.ts` (salted SHA-256) has been **removed** —
+> authentication is now server-side (PBKDF2). See the server auth section below.
+
+To add another backend, create `src/data/<provider>/` implementing the same interfaces
+and swap the exports in `src/data/index.ts`.
 
 - **Single-file frontend:** almost the entire UI lives in
   [`src/App.tsx`](src/App.tsx) (~1900 lines) — package catalog, all views, modals, and
@@ -176,12 +200,14 @@ IndexedDB object stores (formerly Firestore collections, same shapes):
 - `auth_users/{uid}` — local credentials `{ uid, email, passwordHash, salt, displayName, createdAt }`
 
 ### Roles & auth — see [`AUTHORIZATION.md`](AUTHORIZATION.md)
-- The first-login bootstrap in `App.tsx` assigns `admin` to `mongeta5@gmail.com` and
-  `technician` to everyone else. Change this hardcoded email before any real use.
-- **There is no server**, so role-based access is a **client-side UI gate only** — fine
-  for a single-user local app, but not real authorization. The former Firestore
-  security rules (the actual enforcement boundary) are documented in `AUTHORIZATION.md`
-  so they can be reimplemented if this ever gets a shared backend.
+- **Auth is enforced server-side.** Every `/api/mikrotik` and `/api/billing` call
+  requires a valid signed session token; DELETEs additionally require the `admin` role
+  (mirrors the former Firestore rules). Passwords are PBKDF2-hashed.
+- The **first** account to register bootstraps as `admin`; all later accounts are
+  `technician` unless an admin creates them with an explicit role. Self-registration
+  closes once the first account exists.
+- The client's role (from the server) still drives the **UI gate** in `App.tsx`, but the
+  server is the real boundary — the UI gate is now defense-in-depth, not the only check.
 
 ---
 
@@ -206,12 +232,14 @@ This app is a **prototype** that now includes a genuinely stateful (but still
   the billing engine.
 - 🟡 **Public storefront subscriptions/receipts** — still React state only; lost on
   refresh. (The admin **Billing** tab is the real, persisted path.)
-- 🟢 **Local auth + legacy admin CRUD** (clients/routers/transactions) — persist in the
-  browser's IndexedDB as before.
+- 🟢 **Server-side auth** — accounts, PBKDF2 hashing, signed session tokens, and
+  role-enforced `/api/*` (admin-only DELETEs). The legacy admin CRUD
+  (clients/routers/transactions) still persists in the browser's IndexedDB.
 
-> ⚠️ **No server-side authorization.** The `/api/*` routes are unauthenticated — any
-> client can call them. Role checks remain a client-side UI gate only (see
-> `AUTHORIZATION.md`). Add real auth/authz before any shared or public deployment.
+> ✅ **Server-side authorization is now in place.** `/api/mikrotik` and `/api/billing`
+> require a valid session; DELETEs require `admin`. Still to harden before a public,
+> multi-user deployment: put it behind TLS (reverse proxy), set a stable `AUTH_SECRET` /
+> `DATA_ENCRYPTION_KEY`, add a tailored CSP, and add an admin UI for staff management.
 
 ---
 
@@ -228,26 +256,31 @@ weonline_v1/
 │   ├── views/
 │   │   ├── BillingView.tsx      # Admin "Billing" sub-tab (server-backed)
 │   │   └── MikrotikConsole.tsx  # Admin "MikroTik" sub-tab (server-backed)
-│   └── data/                    # Backend-agnostic data layer (IndexedDB)
-│       ├── index.ts             # Backend selector (active: IndexedDB)
+│   └── data/                    # Backend-agnostic data layer
+│       ├── index.ts             # Backend selector (auth: server, data: IndexedDB)
 │       ├── types.ts             # AuthService + DataStore contracts
 │       ├── models.ts            # Domain models
-│       └── indexeddb/           # Local backend (active): db, store, auth
-├── server/                      # Express backend: sim/live drivers + billing engine
-│   ├── index.ts                 # mountApi(app) [async]: wires store/manager/engine/scheduler
-│   ├── store.ts                 # JSON-file persistence + makeId
-│   ├── types.ts                 # Server domain types (RouterRecord.driver, ProvisionSpec)
+│       ├── server/              # server-backed AuthService (auth.ts)
+│       └── indexeddb/           # Local backend for legacy admin CRUD: db, store
+├── server/                      # Express backend: auth + sim/live drivers + billing engine
+│   ├── index.ts                 # mountApi(app) [async]: wires auth/store/manager/engine/scheduler
+│   ├── loadenv.ts               # env loader (imported first)
+│   ├── crypto.ts                # password generation + AES-GCM field encryption
+│   ├── store.ts                 # JSON-file persistence (encrypts secrets at rest) + makeId
+│   ├── types.ts                 # Server domain types (AuthUserRecord, RouterRecord.driver, ...)
 │   ├── scheduler.ts             # Async ticking loop (manager.refreshAll + billing cycle)
 │   ├── seed.ts                  # First-run seed world (simulator routers)
+│   ├── auth/                    # service.ts, tokens.ts, middleware.ts, routes.ts
 │   ├── mikrotik/                # driver.ts, simulator.ts, live.ts, manager.ts, routes.ts
 │   └── billing/                 # engine.ts + routes.ts
 ├── data/                        # Runtime state (weonline.json) — gitignored
-├── server.ts                    # Express + Vite dev/prod server; calls mountApi
+├── server.ts                    # Express + Vite dev/prod server; helmet, calls mountApi
 ├── index.html                   # SPA host page
 ├── metadata.json                # App manifest (name/description)
 ├── vite.config.ts               # Vite + Tailwind + React config
 ├── tsconfig.json
-├── .env.example                 # placeholder (no vars required)
+├── .env.example                 # documents AUTH_SECRET / HOST / router + data-key vars
+├── .env.local                   # local secrets (gitignored)
 ├── AUTHORIZATION.md             # access model + former security rules
 └── package.json
 ```
@@ -270,14 +303,19 @@ weonline_v1/
 
 ## 8. Known gotchas / tech debt
 
-- **No server-side authorization.** Local role checks are UI-only (see
-  `AUTHORIZATION.md`). Do not deploy multi-user without a real backend + rules.
+- **Set `AUTH_SECRET` (and ideally `DATA_ENCRYPTION_KEY`) in production.** Without them a
+  session secret is ephemeral (logins reset on restart) and passwords are stored plaintext
+  at rest. See §2.
+- **No admin UI for staff management yet.** After the first admin, further accounts are
+  created via `POST /api/auth/users` (admin token) — a UI for this is a follow-up.
+- **No TLS on the app server itself.** Terminate TLS at a reverse proxy before exposing it
+  (and only then set `HOST=0.0.0.0`).
+- **No tailored CSP.** `helmet` runs with CSP disabled so the SPA works; add a policy.
 - **Router telemetry writes many fields.** The former Firestore router validator only
   allowed `name, location, ipAddress, status` while the app writes ~11 fields — a bug
   noted in `AUTHORIZATION.md` to fix if router validation is ever re-enforced server-side.
 - **Two lockfiles:** `bun.lock` + `package-lock.json`. Standardize on one (recommend
   deleting `bun.lock`).
-- **Hardcoded admin email** (`mongeta5@gmail.com`) in `App.tsx`.
 - **No test suite.**
 
 ---

@@ -240,8 +240,30 @@ export interface ProvisionSpec {
   comment?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth domain (server-side — the real authorization boundary)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type Role = 'admin' | 'technician';
+
+/**
+ * A staff account. Credentials are PBKDF2-hashed; the plaintext password is never
+ * stored. This is the source of truth for who may call the API and at what role.
+ */
+export interface AuthUserRecord {
+  uid: string;
+  email: string;
+  role: Role;
+  displayName: string | null;
+  passwordHash: string; // hex
+  salt: string; // hex
+  iterations: number; // PBKDF2 rounds (stored so hashes can be upgraded later)
+  createdAt: string;
+}
+
 export interface StoreData {
   meta: { seeded: boolean; invoiceSeq: number; version: number };
+  users: AuthUserRecord[];
   plans: Plan[];
   subscribers: Subscriber[];
   subscriptions: Subscription[];

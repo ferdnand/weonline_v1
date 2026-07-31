@@ -400,7 +400,7 @@ function RouterForm({ editing, onClose, onSubmit }: {
                 <input type="checkbox" name="tls" defaultChecked={editing?.tls ?? true} className="w-5 h-5 rounded" /> Use HTTPS (www-ssl)
               </label>
               <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <input type="checkbox" name="insecureTls" defaultChecked={editing?.insecureTls ?? true} className="w-5 h-5 rounded" /> Accept self-signed certificate (LAN only)
+                <input type="checkbox" name="insecureTls" defaultChecked={editing?.insecureTls ?? false} className="w-5 h-5 rounded" /> Accept self-signed certificate (LAN only — disables cert verification)
               </label>
               <p className="text-xs text-slate-400">
                 Enable REST on the router first (<span className="font-mono">/ip service enable www-ssl</span>) and use a dedicated API user.

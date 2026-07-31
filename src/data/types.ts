@@ -11,6 +11,8 @@ export interface AuthUser {
   uid: string;
   email: string | null;
   displayName: string | null;
+  /** Server-enforced role, when the backend provides one (server auth). */
+  role?: 'admin' | 'technician';
 }
 
 export interface AuthService {

@@ -198,15 +198,55 @@ export interface SimpleQueue {
   bytesIn: number; bytesOut: number; disabled: boolean;
 }
 
+// ── Session token ─────────────────────────────────────────────────────────────
+// The server API requires a Bearer token minted by /api/auth. It is kept in
+// localStorage and attached to every request. The auth layer (src/data/server)
+// sets/clears it via these helpers so there is a single source of truth.
+
+const TOKEN_KEY = 'weonline_api_token';
+
+export function getApiToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setApiToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore storage failures (private mode, etc.) */
+  }
+}
+
+/** Notified when the server rejects our token (401) so the app can force re-login. */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(cb: (() => void) | null): void {
+  onUnauthorized = cb;
+}
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const token = getApiToken();
+  const headers: Record<string, string> = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const res = await fetch(url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      // Stale/absent session — drop the token and let the app return to login.
+      setApiToken(null);
+      onUnauthorized?.();
+    }
     let msg = `${res.status} ${res.statusText}`;
     try {
       const j = await res.json();
