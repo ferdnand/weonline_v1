@@ -119,6 +119,8 @@ export interface SystemResource {
   uptime?: string;
 }
 
+export type RouterDriver = 'simulator' | 'live';
+
 export interface RouterSummary {
   id: string;
   name: string;
@@ -133,6 +135,37 @@ export interface RouterSummary {
   pppSecrets: number;
   hotspotUsers: number;
   queues: number;
+  // live-device fields
+  driver: RouterDriver;
+  tls?: boolean;
+  insecureTls?: boolean;
+  apiPort?: number;
+  username?: string;
+  lastError?: string;
+  lastPolledAt?: string;
+}
+
+/** Payload for creating/updating a router (POST /api/mikrotik/routers). */
+export interface RouterInput {
+  id?: string;
+  name: string;
+  location?: string;
+  ipAddress: string;
+  model?: string;
+  identity?: string;
+  driver: RouterDriver;
+  tls?: boolean;
+  insecureTls?: boolean;
+  apiPort?: number;
+  username?: string;
+  password?: string;
+}
+
+export interface TestResult {
+  ok: boolean;
+  driver: RouterDriver;
+  resource?: any;
+  error?: string;
 }
 
 export interface ActiveSession {
@@ -216,6 +249,9 @@ export const api = {
   listRouters: () => req<RouterSummary[]>('GET', '/api/mikrotik/routers'),
   getRouter: (id: string) =>
     req<{ router: RouterSummary; sim: any; uptime: string | null }>('GET', `/api/mikrotik/routers/${id}`),
+  createRouter: (body: RouterInput) => req<RouterSummary>('POST', '/api/mikrotik/routers', body),
+  deleteRouter: (id: string) => req<{ ok: true }>('DELETE', `/api/mikrotik/routers/${id}`),
+  testRouter: (id: string) => req<TestResult>('POST', `/api/mikrotik/routers/${id}/test`),
   routerActive: (id: string) => req<ActiveSession[]>('GET', `/api/mikrotik/routers/${id}/active`),
   routerSecrets: (id: string) => req<PppSecret[]>('GET', `/api/mikrotik/routers/${id}/secrets`),
   routerHotspotUsers: (id: string) => req<HotspotUser[]>('GET', `/api/mikrotik/routers/${id}/hotspot-users`),

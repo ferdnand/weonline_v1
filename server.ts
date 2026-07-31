@@ -13,7 +13,7 @@ async function startServer() {
   // Mounts /api/mikrotik/* and /api/billing/*, seeds first-run data, and starts
   // the ticking scheduler. The legacy /api/mikrotik/status endpoint is preserved
   // (now serving coherent, stateful telemetry instead of random numbers).
-  mountApi(app);
+  await mountApi(app);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

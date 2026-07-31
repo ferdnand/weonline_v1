@@ -20,6 +20,7 @@ import type {
   Invoice,
   Payment,
   Plan,
+  ProvisionSpec,
   ServiceType,
   StoreData,
   Subscriber,
@@ -27,7 +28,7 @@ import type {
   SubscriptionStatus,
 } from '../types';
 import { makeId, Store } from '../store';
-import { MikrotikSimulator, ProvisionSpec } from '../mikrotik/simulator';
+import { MikrotikManager } from '../mikrotik/manager';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GRACE_DAYS = 2; // grace window after period end before suspension
@@ -36,7 +37,7 @@ const DUE_DAYS = 3; // invoice due N days after issue
 export class BillingEngine {
   constructor(
     private store: Store,
-    private sim: MikrotikSimulator,
+    private mik: MikrotikManager,
   ) {}
 
   private d(): StoreData {
@@ -103,12 +104,12 @@ export class BillingEngine {
     return sub;
   }
 
-  deleteSubscriber(id: string): boolean {
+  async deleteSubscriber(id: string): Promise<boolean> {
     const sub = this.d().subscribers.find((s) => s.id === id);
     if (!sub) return false;
     // Deprovision any subscriptions and remove router users.
     for (const s of this.d().subscriptions.filter((x) => x.subscriberId === id)) {
-      this.sim.removeUser(sub.routerId, sub.username);
+      await this.mik.removeUser(sub.routerId, sub.username);
       s.status = 'cancelled';
     }
     this.d().subscribers = this.d().subscribers.filter((s) => s.id !== id);
@@ -145,12 +146,12 @@ export class BillingEngine {
    * (unpaid) invoice. The user is provisioned on the router but DISABLED until
    * the first invoice is paid.
    */
-  createSubscription(
+  async createSubscription(
     subscriberId: string,
     planId: string,
     autoRenew: boolean,
     nowMs: number,
-  ): { subscription: Subscription; invoice: Invoice } | { error: string } {
+  ): Promise<{ subscription: Subscription; invoice: Invoice } | { error: string }> {
     const sub = this.d().subscribers.find((s) => s.id === subscriberId);
     const plan = this.d().plans.find((p) => p.id === planId);
     if (!sub) return { error: 'subscriber not found' };
@@ -181,8 +182,8 @@ export class BillingEngine {
     this.d().subscriptions.push(subscription);
 
     // Provision on the router but keep disabled until paid.
-    this.sim.upsertUser(sub.routerId, this.provisionSpec(sub, plan), nowMs);
-    this.sim.setUserEnabled(sub.routerId, sub.username, false, nowMs);
+    await this.mik.upsertUser(sub.routerId, this.provisionSpec(sub, plan), nowMs);
+    await this.mik.setUserEnabled(sub.routerId, sub.username, false, nowMs);
 
     const invoice = this.issueInvoice(subscription, plan, nowMs);
     this.store.save();
@@ -195,40 +196,40 @@ export class BillingEngine {
   }
 
   /** Enable/disable a subscriber on the router and flag provisioned. */
-  private applyProvisioning(sub: Subscription, enabled: boolean, nowMs: number): void {
+  private async applyProvisioning(sub: Subscription, enabled: boolean, nowMs: number): Promise<void> {
     const subscriber = this.d().subscribers.find((s) => s.id === sub.subscriberId);
     const plan = this.d().plans.find((p) => p.id === sub.planId);
     if (!subscriber || !plan) return;
     // Re-upsert (in case caps/rates changed), then set enabled state.
-    this.sim.upsertUser(subscriber.routerId, this.provisionSpec(subscriber, plan), nowMs);
-    this.sim.setUserEnabled(subscriber.routerId, subscriber.username, enabled, nowMs);
+    await this.mik.upsertUser(subscriber.routerId, this.provisionSpec(subscriber, plan), nowMs);
+    await this.mik.setUserEnabled(subscriber.routerId, subscriber.username, enabled, nowMs);
     sub.provisioned = enabled;
   }
 
-  suspendSubscription(id: string, nowMs: number): Subscription | null {
+  async suspendSubscription(id: string, nowMs: number): Promise<Subscription | null> {
     const sub = this.getSubscription(id);
     if (!sub) return null;
     this.setStatus(sub, 'suspended', nowMs);
-    this.applyProvisioning(sub, false, nowMs);
+    await this.applyProvisioning(sub, false, nowMs);
     this.store.save();
     return sub;
   }
 
   /** Manually (re)activate — used by staff overrides; does not settle invoices. */
-  activateSubscription(id: string, nowMs: number): Subscription | null {
+  async activateSubscription(id: string, nowMs: number): Promise<Subscription | null> {
     const sub = this.getSubscription(id);
     if (!sub) return null;
     this.setStatus(sub, 'active', nowMs);
-    this.applyProvisioning(sub, true, nowMs);
+    await this.applyProvisioning(sub, true, nowMs);
     this.store.save();
     return sub;
   }
 
-  cancelSubscription(id: string, nowMs: number): Subscription | null {
+  async cancelSubscription(id: string, nowMs: number): Promise<Subscription | null> {
     const sub = this.getSubscription(id);
     if (!sub) return null;
     this.setStatus(sub, 'cancelled', nowMs);
-    this.applyProvisioning(sub, false, nowMs);
+    await this.applyProvisioning(sub, false, nowMs);
     // Void any unpaid invoices.
     this.d()
       .invoices.filter((inv) => inv.subscriptionId === id && inv.status !== 'paid')
@@ -295,11 +296,11 @@ export class BillingEngine {
   }
 
   /** Record a manual/cash payment that settles immediately. */
-  recordManualPayment(
+  async recordManualPayment(
     invoiceId: string,
     method: 'cash' | 'manual',
     nowMs: number,
-  ): Payment | { error: string } {
+  ): Promise<Payment | { error: string }> {
     const invoice = this.d().invoices.find((i) => i.id === invoiceId);
     if (!invoice) return { error: 'invoice not found' };
     if (invoice.status === 'paid') return { error: 'invoice already paid' };
@@ -315,7 +316,7 @@ export class BillingEngine {
       completedAt: new Date(nowMs).toISOString(),
     };
     this.d().payments.push(payment);
-    this.settleInvoice(invoice, payment, nowMs);
+    await this.settleInvoice(invoice, payment, nowMs);
     this.store.save();
     return payment;
   }
@@ -325,7 +326,7 @@ export class BillingEngine {
    * the rest fail with a believable reason (mirrors real STK cancel/timeouts).
    * Called each scheduler tick.
    */
-  settlePending(nowMs: number): void {
+  async settlePending(nowMs: number): Promise<void> {
     for (const p of this.d().payments) {
       if (p.status !== 'pending' || p.method !== 'mpesa') continue;
       const age = nowMs - new Date(p.createdAt).getTime();
@@ -337,7 +338,7 @@ export class BillingEngine {
         p.completedAt = new Date(nowMs).toISOString();
         p.mpesaReceipt = mpesaReceipt(p.id);
         const invoice = this.d().invoices.find((i) => i.id === p.invoiceId);
-        if (invoice && invoice.status !== 'paid') this.settleInvoice(invoice, p, nowMs);
+        if (invoice && invoice.status !== 'paid') await this.settleInvoice(invoice, p, nowMs);
       } else {
         p.status = 'failed';
         p.failureReason = roll < 0.96 ? 'Request cancelled by user' : 'STK push timed out';
@@ -347,7 +348,7 @@ export class BillingEngine {
   }
 
   /** Mark an invoice paid and (re)activate + provision its subscription. */
-  private settleInvoice(invoice: Invoice, payment: Payment, nowMs: number): void {
+  private async settleInvoice(invoice: Invoice, payment: Payment, nowMs: number): Promise<void> {
     invoice.status = 'paid';
     invoice.paidDate = new Date(nowMs).toISOString();
     invoice.paymentId = payment.id;
@@ -370,7 +371,7 @@ export class BillingEngine {
       sub.currentPeriodEnd = invoice.periodEnd;
     }
     this.setStatus(sub, 'active', nowMs);
-    this.applyProvisioning(sub, true, nowMs);
+    await this.applyProvisioning(sub, true, nowMs);
   }
 
   // ── Recurring billing cycle ──────────────────────────────────────────────────
@@ -382,7 +383,7 @@ export class BillingEngine {
    *  - overdue invoices get flagged
    * Also expires users whose hotspot data cap was hit (passed in from the sim).
    */
-  runCycle(nowMs: number, cappedUsers: { routerId: string; username: string }[] = []): void {
+  async runCycle(nowMs: number, cappedUsers: { routerId: string; username: string }[] = []): Promise<void> {
     // Handle data-cap expiries reported by the simulator.
     for (const { username } of cappedUsers) {
       const subscriber = this.d().subscribers.find((s) => s.username === username);
@@ -437,7 +438,7 @@ export class BillingEngine {
         const graceOver = new Date(sub.currentPeriodEnd).getTime() + GRACE_DAYS * DAY_MS <= nowMs;
         if (graceOver) {
           this.setStatus(sub, 'suspended', nowMs);
-          this.applyProvisioning(sub, false, nowMs);
+          await this.applyProvisioning(sub, false, nowMs);
         }
         continue;
       }
@@ -447,7 +448,7 @@ export class BillingEngine {
         const graceOver = new Date(sub.currentPeriodEnd).getTime() + GRACE_DAYS * DAY_MS <= nowMs;
         if (graceOver) {
           this.setStatus(sub, 'suspended', nowMs);
-          this.applyProvisioning(sub, false, nowMs);
+          await this.applyProvisioning(sub, false, nowMs);
         }
       }
     }

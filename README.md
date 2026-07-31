@@ -18,6 +18,11 @@ service dependency.
   per-user simple queues (rate limits), and a system resource that reacts to load. The
   API mirrors RouterOS operations (`/ppp/secret`, `/ppp/active`, `/queue/simple`,
   `/system/resource`).
+- **Real MikroTik support (live driver)** — add a router with `driver: 'live'` and the
+  app drives an actual RouterOS 7 device (e.g. a MikroTik L009) over the REST API:
+  real telemetry/sessions are polled in, and billing provisioning is applied on the
+  device. Simulator and live routers coexist (per-router driver). See
+  [`TUTORIAL.md`](TUTORIAL.md) → "Connect a real MikroTik L009".
 - **Billing engine** — plans, subscriber accounts, a subscription lifecycle
   (`pending → active → grace → suspended → expired`), recurring invoicing, payments
   (simulated **M-Pesa STK push** + cash/manual), and revenue reporting (revenue, MRR,

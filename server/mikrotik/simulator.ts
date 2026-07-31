@@ -23,12 +23,14 @@ import type {
   ActiveSession,
   HotspotUser,
   PppSecret,
+  ProvisionSpec,
   RouterSimState,
   ServiceType,
   SimpleQueue,
   StoreData,
 } from '../types';
 import { makeId } from '../store';
+import type { CappedUser, MikrotikDriver } from './driver';
 
 // Deterministic-ish PRNG (mulberry32) seeded per router so we avoid Math.random.
 function makePrng(seed: number) {
@@ -74,19 +76,7 @@ function randomMac(prng: () => number): string {
   return `${oct()}:${oct()}:${oct()}:${oct()}:${oct()}:${oct()}`;
 }
 
-export interface ProvisionSpec {
-  username: string;
-  password: string;
-  service: ServiceType;
-  profile: string; // plan name
-  downloadKbps: number;
-  uploadKbps: number;
-  dataCapMb: number;
-  macAddress?: string;
-  comment?: string;
-}
-
-export class MikrotikSimulator {
+export class MikrotikSimulator implements MikrotikDriver {
   constructor(private store: { data: StoreData; save: () => void }) {}
 
   private prngFor(routerId: string, salt: number): () => number {
@@ -151,7 +141,7 @@ export class MikrotikSimulator {
    * Mirrors RouterOS `/ppp/secret add` / `/ip/hotspot/user add` with an
    * accompanying `/queue/simple` for rate shaping.
    */
-  upsertUser(routerId: string, spec: ProvisionSpec, nowMs: number): void {
+  async upsertUser(routerId: string, spec: ProvisionSpec, nowMs: number): Promise<void> {
     const s = this.ensureRouter(routerId, 'router', 'MikroTik', nowMs);
     const rateLimit = kbpsToRateLimit(spec.downloadKbps, spec.uploadKbps);
 
@@ -205,7 +195,7 @@ export class MikrotikSimulator {
     this.store.save();
   }
 
-  setUserEnabled(routerId: string, username: string, enabled: boolean, nowMs: number): void {
+  async setUserEnabled(routerId: string, username: string, enabled: boolean, nowMs: number): Promise<void> {
     const s = this.store.data.simState[routerId];
     if (!s) return;
     const disabled = !enabled;
@@ -232,7 +222,7 @@ export class MikrotikSimulator {
     this.store.save();
   }
 
-  removeUser(routerId: string, username: string): void {
+  async removeUser(routerId: string, username: string): Promise<void> {
     const s = this.store.data.simState[routerId];
     if (!s) return;
     s.pppSecrets = s.pppSecrets.filter((x) => x.name !== username);
@@ -243,7 +233,7 @@ export class MikrotikSimulator {
   }
 
   /** Force-disconnect a live session (RouterOS `/ppp/active remove`). */
-  disconnectSession(routerId: string, sessionId: string): void {
+  async disconnectSession(routerId: string, sessionId: string): Promise<void> {
     const s = this.store.data.simState[routerId];
     if (!s) return;
     s.activeSessions = s.activeSessions.filter((x) => x.id !== sessionId);
@@ -270,107 +260,103 @@ export class MikrotikSimulator {
   }
 
   /**
-   * Advance the whole world by `dtSec` seconds. Called by the scheduler.
-   * Returns the list of usernames that hit their data cap this tick (so the
-   * billing engine can expire them).
+   * Advance ONE simulated router by `dtSec` seconds (the driver `refresh` for the
+   * simulator). Invents session churn, throughput, and telemetry. Returns any
+   * users that hit their data cap so billing can expire them.
    */
-  tick(nowMs: number, dtSec: number): { routerId: string; username: string }[] {
-    const capped: { routerId: string; username: string }[] = [];
+  async refresh(routerId: string, nowMs: number, dtSec: number): Promise<CappedUser[]> {
+    const capped: CappedUser[] = [];
     const iso = new Date(nowMs).toISOString();
 
-    for (const routerId of Object.keys(this.store.data.simState)) {
-      const s = this.store.data.simState[routerId];
-      if (!s.online) {
-        s.activeSessions = [];
-        continue;
-      }
-      const prng = this.prngFor(routerId, (nowMs / 1000) | 0);
-      s.resource.uptimeSec += dtSec;
-
-      const eligible = this.eligibleUsers(s);
-      const onlineNames = new Set(s.activeSessions.map((x) => x.name));
-
-      // Connect a fraction of offline-but-eligible users.
-      for (const u of eligible) {
-        if (onlineNames.has(u.name)) continue;
-        // ~35% chance per tick to come online (hotspot flappier than pppoe).
-        const p = u.service === 'pppoe' ? 0.45 : 0.3;
-        if (prng() < p) {
-          const rxKbps = this.parseRx(u.rateLimit);
-          s.activeSessions.push({
-            id: makeId('sess', nowMs),
-            name: u.name,
-            service: u.service,
-            address: assignIp(this.prngFor(routerId, hashSeed(u.name)), u.service),
-            macAddress: randomMac(this.prngFor(routerId, hashSeed(u.name) ^ 0x55)),
-            uptimeSec: 0,
-            bytesIn: 0,
-            bytesOut: 0,
-            rateRxKbps: 0,
-            rateTxKbps: 0,
-            since: iso,
-          });
-        }
-      }
-
-      // Evolve each active session.
-      let tickUplinkIn = 0;
-      let tickUplinkOut = 0;
-      const survivors: ActiveSession[] = [];
-      for (const sess of s.activeSessions) {
-        // Occasionally disconnect (session churn).
-        if (prng() < 0.06) continue;
-        sess.uptimeSec += dtSec;
-        const cap = this.parseRx(this.rateFor(s, sess.name));
-        // Instantaneous utilisation 5%–95% of the cap.
-        const util = 0.05 + prng() * 0.9;
-        sess.rateRxKbps = Math.round(cap * util);
-        sess.rateTxKbps = Math.round(cap * util * (0.1 + prng() * 0.3));
-        const inBytes = Math.round((sess.rateRxKbps * 1000 * dtSec) / 8);
-        const outBytes = Math.round((sess.rateTxKbps * 1000 * dtSec) / 8);
-        sess.bytesIn += inBytes;
-        sess.bytesOut += outBytes;
-        tickUplinkIn += inBytes;
-        tickUplinkOut += outBytes;
-
-        // Mirror into the queue counters.
-        const q = s.queues.find((x) => x.name === `q-${sess.name}`);
-        if (q) {
-          q.bytesIn += inBytes;
-          q.bytesOut += outBytes;
-        }
-
-        // Accrue hotspot data usage toward the cap.
-        const hs = s.hotspotUsers.find((x) => x.name === sess.name);
-        if (hs) {
-          hs.bytesIn += inBytes;
-          hs.bytesOut += outBytes;
-          if (hs.limitBytesTotal > 0 && hs.bytesIn + hs.bytesOut >= hs.limitBytesTotal) {
-            hs.disabled = true;
-            capped.push({ routerId, username: hs.name });
-            continue; // drop the session — cap reached
-          }
-        }
-        survivors.push(sess);
-      }
-      s.activeSessions = survivors;
-      s.uplinkBytesIn += tickUplinkIn;
-      s.uplinkBytesOut += tickUplinkOut;
-
-      // System resource reacts to session count.
-      const load = s.activeSessions.length;
-      const targetCpu = Math.min(95, 5 + load * 1.6 + prng() * 8);
-      s.resource.cpuLoad = Math.round(s.resource.cpuLoad * 0.6 + targetCpu * 0.4);
-      const usedPct = Math.min(92, 42 + load * 0.8 + prng() * 5);
-      s.resource.memoryUsedPct = Math.round(usedPct);
-      s.resource.freeMemoryMb = Math.round(
-        s.resource.totalMemoryMb * (1 - usedPct / 100),
-      );
-      s.resource.temperature = Math.round(38 + s.resource.cpuLoad * 0.12 + prng() * 2);
-      s.resource.voltage = Math.round((23.8 + prng() * 0.6) * 10) / 10;
-
-      s.lastTick = iso;
+    const s = this.store.data.simState[routerId];
+    if (!s) return capped;
+    if (!s.online) {
+      s.activeSessions = [];
+      this.store.save();
+      return capped;
     }
+    const prng = this.prngFor(routerId, (nowMs / 1000) | 0);
+    s.resource.uptimeSec += dtSec;
+
+    const eligible = this.eligibleUsers(s);
+    const onlineNames = new Set(s.activeSessions.map((x) => x.name));
+
+    // Connect a fraction of offline-but-eligible users.
+    for (const u of eligible) {
+      if (onlineNames.has(u.name)) continue;
+      // ~35% chance per tick to come online (hotspot flappier than pppoe).
+      const p = u.service === 'pppoe' ? 0.45 : 0.3;
+      if (prng() < p) {
+        s.activeSessions.push({
+          id: makeId('sess', nowMs),
+          name: u.name,
+          service: u.service,
+          address: assignIp(this.prngFor(routerId, hashSeed(u.name)), u.service),
+          macAddress: randomMac(this.prngFor(routerId, hashSeed(u.name) ^ 0x55)),
+          uptimeSec: 0,
+          bytesIn: 0,
+          bytesOut: 0,
+          rateRxKbps: 0,
+          rateTxKbps: 0,
+          since: iso,
+        });
+      }
+    }
+
+    // Evolve each active session.
+    let tickUplinkIn = 0;
+    let tickUplinkOut = 0;
+    const survivors: ActiveSession[] = [];
+    for (const sess of s.activeSessions) {
+      // Occasionally disconnect (session churn).
+      if (prng() < 0.06) continue;
+      sess.uptimeSec += dtSec;
+      const cap = this.parseRx(this.rateFor(s, sess.name));
+      // Instantaneous utilisation 5%–95% of the cap.
+      const util = 0.05 + prng() * 0.9;
+      sess.rateRxKbps = Math.round(cap * util);
+      sess.rateTxKbps = Math.round(cap * util * (0.1 + prng() * 0.3));
+      const inBytes = Math.round((sess.rateRxKbps * 1000 * dtSec) / 8);
+      const outBytes = Math.round((sess.rateTxKbps * 1000 * dtSec) / 8);
+      sess.bytesIn += inBytes;
+      sess.bytesOut += outBytes;
+      tickUplinkIn += inBytes;
+      tickUplinkOut += outBytes;
+
+      // Mirror into the queue counters.
+      const q = s.queues.find((x) => x.name === `q-${sess.name}`);
+      if (q) {
+        q.bytesIn += inBytes;
+        q.bytesOut += outBytes;
+      }
+
+      // Accrue hotspot data usage toward the cap.
+      const hs = s.hotspotUsers.find((x) => x.name === sess.name);
+      if (hs) {
+        hs.bytesIn += inBytes;
+        hs.bytesOut += outBytes;
+        if (hs.limitBytesTotal > 0 && hs.bytesIn + hs.bytesOut >= hs.limitBytesTotal) {
+          hs.disabled = true;
+          capped.push({ routerId, username: hs.name });
+          continue; // drop the session — cap reached
+        }
+      }
+      survivors.push(sess);
+    }
+    s.activeSessions = survivors;
+    s.uplinkBytesIn += tickUplinkIn;
+    s.uplinkBytesOut += tickUplinkOut;
+
+    // System resource reacts to session count.
+    const load = s.activeSessions.length;
+    const targetCpu = Math.min(95, 5 + load * 1.6 + prng() * 8);
+    s.resource.cpuLoad = Math.round(s.resource.cpuLoad * 0.6 + targetCpu * 0.4);
+    const usedPct = Math.min(92, 42 + load * 0.8 + prng() * 5);
+    s.resource.memoryUsedPct = Math.round(usedPct);
+    s.resource.freeMemoryMb = Math.round(s.resource.totalMemoryMb * (1 - usedPct / 100));
+    s.resource.temperature = Math.round(38 + s.resource.cpuLoad * 0.12 + prng() * 2);
+    s.resource.voltage = Math.round((23.8 + prng() * 0.6) * 10) / 10;
+    s.lastTick = iso;
 
     this.store.save();
     return capped;

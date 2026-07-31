@@ -73,39 +73,59 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     res.json(sub);
   });
 
-  r.delete('/subscribers/:id', (req, res) => {
-    const ok = engine.deleteSubscriber(req.params.id);
-    if (!ok) return res.status(404).json({ error: 'subscriber not found' });
-    res.json({ ok: true });
+  r.delete('/subscribers/:id', async (req, res) => {
+    try {
+      const ok = await engine.deleteSubscriber(req.params.id);
+      if (!ok) return res.status(404).json({ error: 'subscriber not found' });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ── Subscriptions ────────────────────────────────────────────────────────────
   r.get('/subscriptions', (_req, res) => res.json(engine.listSubscriptions()));
 
-  r.post('/subscriptions', (req, res) => {
+  r.post('/subscriptions', async (req, res) => {
     const b = req.body || {};
     if (!b.subscriberId || !b.planId) return bad(res, 'subscriberId and planId required');
-    const result = engine.createSubscription(b.subscriberId, b.planId, b.autoRenew !== false, now());
-    if ('error' in result) return bad(res, result.error);
-    res.json(result);
+    try {
+      const result = await engine.createSubscription(b.subscriberId, b.planId, b.autoRenew !== false, now());
+      if ('error' in result) return bad(res, result.error);
+      res.json(result);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
-  r.post('/subscriptions/:id/suspend', (req, res) => {
-    const s = engine.suspendSubscription(req.params.id, now());
-    if (!s) return res.status(404).json({ error: 'subscription not found' });
-    res.json(s);
+  r.post('/subscriptions/:id/suspend', async (req, res) => {
+    try {
+      const s = await engine.suspendSubscription(req.params.id, now());
+      if (!s) return res.status(404).json({ error: 'subscription not found' });
+      res.json(s);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
-  r.post('/subscriptions/:id/activate', (req, res) => {
-    const s = engine.activateSubscription(req.params.id, now());
-    if (!s) return res.status(404).json({ error: 'subscription not found' });
-    res.json(s);
+  r.post('/subscriptions/:id/activate', async (req, res) => {
+    try {
+      const s = await engine.activateSubscription(req.params.id, now());
+      if (!s) return res.status(404).json({ error: 'subscription not found' });
+      res.json(s);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
-  r.post('/subscriptions/:id/cancel', (req, res) => {
-    const s = engine.cancelSubscription(req.params.id, now());
-    if (!s) return res.status(404).json({ error: 'subscription not found' });
-    res.json(s);
+  r.post('/subscriptions/:id/cancel', async (req, res) => {
+    try {
+      const s = await engine.cancelSubscription(req.params.id, now());
+      if (!s) return res.status(404).json({ error: 'subscription not found' });
+      res.json(s);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ── Invoices ─────────────────────────────────────────────────────────────────
@@ -124,11 +144,15 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
   });
 
   // Record a manual/cash payment (settles immediately).
-  r.post('/invoices/:id/pay/manual', (req, res) => {
+  r.post('/invoices/:id/pay/manual', async (req, res) => {
     const method = (req.body && req.body.method) === 'cash' ? 'cash' : 'manual';
-    const result = engine.recordManualPayment(req.params.id, method, now());
-    if ('error' in result) return bad(res, result.error);
-    res.json(result);
+    try {
+      const result = await engine.recordManualPayment(req.params.id, method, now());
+      if ('error' in result) return bad(res, result.error);
+      res.json(result);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ── Reports / dashboard ──────────────────────────────────────────────────────

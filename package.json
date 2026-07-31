@@ -8,6 +8,8 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
+    "reset": "node -e \"require('fs').rmSync('data',{recursive:true,force:true});console.log('billing + simulator state cleared — re-seeds on next start')\"",
+    "dev:fresh": "npm run reset && npm run dev",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

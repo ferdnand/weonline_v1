@@ -1,25 +1,29 @@
 /**
  * MikroTik RouterOS console (admin sub-tab).
  *
- * A live window into the stateful simulator: system resource, active PPPoE/hotspot
- * sessions (with per-session throughput accruing every few seconds), the /ppp
- * secret + hotspot user tables, and simple queues. Staff can power routers on/off,
- * disconnect a live session, and enable/disable a user — all hitting the same sim
- * the billing engine provisions against.
+ * A live window into each router — simulator OR a real device (RouterOS 7 over the
+ * REST API): system resource, active PPPoE/hotspot sessions, the /ppp secret +
+ * hotspot user tables, and simple queues. Staff can add/edit/test/delete routers,
+ * power them, disconnect a session, and enable/disable a user — all through the
+ * same server the billing engine provisions against.
  */
 
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Activity, Cpu, Thermometer, Power, PowerOff, Wifi, Server, Users, Gauge,
-  RefreshCw, LogOut, ShieldCheck, ShieldAlert, HardDrive,
+  Activity, Cpu, Thermometer, Power, PowerOff, Wifi, Server, Gauge,
+  RefreshCw, LogOut, ShieldCheck, ShieldAlert, HardDrive, Plus, Edit2, Trash2,
+  AlertCircle, CheckCircle2, Radio, FlaskConical,
 } from 'lucide-react';
 import {
   api, fmtBytes, fmtRate, fmtUptime, type ActiveSession, type HotspotUser,
-  type PppSecret, type RouterSummary, type SimpleQueue, type SystemResource,
+  type PppSecret, type RouterInput, type RouterSummary, type SimpleQueue,
+  type SystemResource, type TestResult,
 } from '../api/client';
 
 type Tab = 'active' | 'secrets' | 'hotspot' | 'queues';
+
+const inp = 'w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500';
 
 export default function MikrotikConsole({ canControl }: { canControl: boolean }) {
   const [routers, setRouters] = useState<RouterSummary[]>([]);
@@ -31,6 +35,13 @@ export default function MikrotikConsole({ canControl }: { canControl: boolean })
   const [queues, setQueues] = useState<SimpleQueue[]>([]);
   const [tab, setTab] = useState<Tab>('active');
   const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<RouterSummary | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+  const notify = (m: string) => { setToast(m); setTimeout(() => setToast(''), 4000); };
 
   const loadRouters = useCallback(async () => {
     try {
@@ -83,6 +94,54 @@ export default function MikrotikConsole({ canControl }: { canControl: boolean })
     catch (e) { setError((e as Error).message); }
   };
 
+  const saveRouter = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const driver = (f.get('driver') as 'simulator' | 'live') || 'simulator';
+    const body: RouterInput = {
+      id: editing?.id,
+      name: String(f.get('name')),
+      location: String(f.get('location')) || undefined,
+      model: String(f.get('model')) || undefined,
+      identity: String(f.get('identity')) || undefined,
+      ipAddress: String(f.get('ipAddress')),
+      driver,
+      tls: f.get('tls') === 'on',
+      insecureTls: f.get('insecureTls') === 'on',
+      apiPort: f.get('apiPort') ? Number(f.get('apiPort')) : undefined,
+      username: String(f.get('username')) || undefined,
+      password: String(f.get('password')) || undefined,
+    };
+    try {
+      const saved = await api.createRouter(body);
+      setShowForm(false); setEditing(null); setTestResult(null);
+      notify(`Router "${saved.name}" saved`);
+      await loadRouters();
+      setSelected(saved.id);
+    } catch (err) { setError((err as Error).message); }
+  };
+
+  const removeRouter = async (r: RouterSummary) => {
+    if (!window.confirm(`Delete router "${r.name}"? This removes it from WeOnline (it does NOT change the physical device).`)) return;
+    try {
+      await api.deleteRouter(r.id);
+      notify('Router removed');
+      setSelected('');
+      await loadRouters();
+    } catch (err) { setError((err as Error).message); }
+  };
+
+  const testConnection = async () => {
+    if (!current) return;
+    setTesting(true); setTestResult(null);
+    try {
+      const result = await api.testRouter(current.id);
+      setTestResult(result);
+      if (result.ok) notify('Connection OK'); else setError(result.error || 'Connection failed');
+    } catch (err) { setError((err as Error).message); }
+    finally { setTesting(false); }
+  };
+
   return (
     <div className="space-y-6">
       {/* Router picker */}
@@ -95,17 +154,38 @@ export default function MikrotikConsole({ canControl }: { canControl: boolean })
               selected === r.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
             }`}
           >
-            <Server className="w-4 h-4" />
+            {r.driver === 'live' ? <Radio className="w-4 h-4" /> : <Server className="w-4 h-4" />}
             {r.name}
+            <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${r.driver === 'live' ? (selected === r.id ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700') : (selected === r.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500')}`}>{r.driver === 'live' ? 'live' : 'sim'}</span>
             <span className={`w-2 h-2 rounded-full ${r.online ? 'bg-green-400' : 'bg-red-400'}`} />
           </button>
         ))}
+        {canControl && (
+          <button onClick={() => { setEditing(null); setTestResult(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold border border-dashed border-blue-300 text-blue-600 hover:bg-blue-50">
+            <Plus className="w-4 h-4" /> Add Router
+          </button>
+        )}
         <button onClick={() => { loadRouters(); loadDetail(selected); }} className="ml-auto flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-blue-600">
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>
 
-      {error && <div className="p-4 bg-red-50 text-red-700 rounded-2xl text-sm">{error}</div>}
+      {error && (
+        <div className="flex items-start gap-2 p-4 bg-red-50 text-red-700 rounded-2xl text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /><span className="break-all">{error}</span>
+        </div>
+      )}
+      {toast && (
+        <div className="flex items-center gap-2 p-4 bg-green-50 text-green-700 rounded-2xl text-sm">
+          <CheckCircle2 className="w-4 h-4" /> {toast}
+        </div>
+      )}
+      {current?.driver === 'live' && current.lastError && (
+        <div className="flex items-start gap-2 p-4 bg-amber-50 text-amber-800 rounded-2xl text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span className="break-all"><b>Live device error:</b> {current.lastError}</span>
+        </div>
+      )}
 
       {current && (
         <>
@@ -114,24 +194,41 @@ export default function MikrotikConsole({ canControl }: { canControl: boolean })
             <div className="flex items-start justify-between flex-wrap gap-4">
               <div>
                 <div className="flex items-center gap-3">
-                  <div className="bg-white/10 p-3 rounded-2xl"><Server className="w-6 h-6" /></div>
+                  <div className="bg-white/10 p-3 rounded-2xl">{current.driver === 'live' ? <Radio className="w-6 h-6" /> : <Server className="w-6 h-6" />}</div>
                   <div>
-                    <h3 className="text-xl font-black">{current.identity}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-black">{current.identity}</h3>
+                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${current.driver === 'live' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-500/30 text-slate-300'}`}>{current.driver === 'live' ? 'live device' : 'simulator'}</span>
+                    </div>
                     <p className="text-sm text-slate-400">{current.model} · {current.location}</p>
                   </div>
                 </div>
                 <p className="text-xs font-mono text-slate-400 mt-3">
-                  {current.ipAddress}:{'apiPort' in current ? (current as any).apiPort ?? 8728 : 8728} · RouterOS {resource?.version ?? '—'}
+                  {current.driver === 'live' ? `${current.tls ? 'https' : 'http'}://` : ''}{current.ipAddress}:{current.apiPort ?? 8728}{current.driver === 'live' ? '/rest' : ''} · RouterOS {resource?.version || '—'}
+                  {current.driver === 'live' && current.lastPolledAt ? ` · polled ${new Date(current.lastPolledAt).toLocaleTimeString()}` : ''}
                 </p>
               </div>
-              <div className="text-right">
+              <div className="flex flex-col items-end gap-3">
                 <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-xl text-xs font-black uppercase tracking-widest ${current.online ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
                   {current.online ? <Wifi className="w-3 h-3" /> : <PowerOff className="w-3 h-3" />} {current.online ? 'online' : 'offline'}
                 </span>
                 {canControl && (
-                  <button onClick={togglePower} className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold ml-auto ${current.online ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'}`}>
-                    {current.online ? <><PowerOff className="w-4 h-4" /> Power Off</> : <><Power className="w-4 h-4" /> Power On</>}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {current.driver === 'live' && (
+                      <button onClick={testConnection} disabled={testing} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-blue-500/20 text-blue-200 hover:bg-blue-500/30 disabled:opacity-50">
+                        <FlaskConical className="w-4 h-4" /> {testing ? 'Testing…' : 'Test'}
+                      </button>
+                    )}
+                    <button onClick={() => { setEditing(current); setTestResult(null); setShowForm(true); }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-white/10 text-slate-200 hover:bg-white/20">
+                      <Edit2 className="w-4 h-4" /> Edit
+                    </button>
+                    <button onClick={() => removeRouter(current)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-red-500/20 text-red-300 hover:bg-red-500/30">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={togglePower} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold ${current.online ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'}`}>
+                      {current.online ? <><PowerOff className="w-4 h-4" /> Power Off</> : <><Power className="w-4 h-4" /> Power On</>}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -237,7 +334,93 @@ export default function MikrotikConsole({ canControl }: { canControl: boolean })
           </div>
         </>
       )}
+
+      {testResult?.ok && testResult.resource && (
+        <div className="p-4 bg-emerald-50 text-emerald-800 rounded-2xl text-sm flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            <b>Connection OK.</b> {String(testResult.resource['board-name'] || testResult.resource.boardName || 'RouterOS')} ·
+            v{String(testResult.resource.version || '?')} · uptime {String(testResult.resource.uptime || '?')}
+          </span>
+        </div>
+      )}
+
+      {showForm && (
+        <RouterForm
+          editing={editing}
+          onClose={() => { setShowForm(false); setEditing(null); }}
+          onSubmit={saveRouter}
+        />
+      )}
     </div>
+  );
+}
+
+function RouterForm({ editing, onClose, onSubmit }: {
+  editing: RouterSummary | null;
+  onClose: () => void;
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  const [driver, setDriver] = useState<'simulator' | 'live'>(editing?.driver || 'live');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-3xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-5">
+          <h3 className="text-xl font-black text-slate-900">{editing ? `Edit ${editing.name}` : 'Add Router'}</h3>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl">✕</button>
+        </div>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <Field label="Driver">
+            <select name="driver" value={driver} onChange={(e) => setDriver(e.target.value as 'simulator' | 'live')} className={inp}>
+              <option value="live">Live — real RouterOS device (REST)</option>
+              <option value="simulator">Simulator — in-memory demo</option>
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Name"><input name="name" required defaultValue={editing?.name} placeholder="L009 Office" className={inp} /></Field>
+            <Field label="Location"><input name="location" defaultValue={editing?.location} placeholder="Server room" className={inp} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Model"><input name="model" defaultValue={editing?.model || 'MikroTik L009UiGS-RM'} className={inp} /></Field>
+            <Field label="Identity"><input name="identity" defaultValue={editing?.identity} placeholder="RouterOS identity" className={inp} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="IP address"><input name="ipAddress" required defaultValue={editing?.ipAddress || '192.168.88.1'} className={inp} /></Field>
+            <Field label={driver === 'live' ? 'REST port (443 tls / 80)' : 'API port'}>
+              <input name="apiPort" type="number" defaultValue={editing?.apiPort ?? (driver === 'live' ? 443 : 8728)} className={inp} />
+            </Field>
+          </div>
+          {driver === 'live' && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Username"><input name="username" defaultValue={editing?.username || 'admin'} className={inp} /></Field>
+                <Field label={editing ? 'Password (blank = keep)' : 'Password'}><input name="password" type="password" className={inp} /></Field>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                <input type="checkbox" name="tls" defaultChecked={editing?.tls ?? true} className="w-5 h-5 rounded" /> Use HTTPS (www-ssl)
+              </label>
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                <input type="checkbox" name="insecureTls" defaultChecked={editing?.insecureTls ?? true} className="w-5 h-5 rounded" /> Accept self-signed certificate (LAN only)
+              </label>
+              <p className="text-xs text-slate-400">
+                Enable REST on the router first (<span className="font-mono">/ip service enable www-ssl</span>) and use a dedicated API user.
+                After saving, hit <b>Test</b> to verify before enrolling subscribers.
+              </p>
+            </>
+          )}
+          <button type="submit" className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">Save Router</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
   );
 }
 

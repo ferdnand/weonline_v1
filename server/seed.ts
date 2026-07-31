@@ -6,12 +6,12 @@
 
 import type { RouterRecord } from './types';
 import { BillingEngine } from './billing/engine';
-import { MikrotikSimulator } from './mikrotik/simulator';
+import { MikrotikManager } from './mikrotik/manager';
 import { Store } from './store';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function seedIfEmpty(store: Store, sim: MikrotikSimulator, engine: BillingEngine): void {
+export async function seedIfEmpty(store: Store, mik: MikrotikManager, engine: BillingEngine): Promise<void> {
   if (store.data.meta.seeded) return;
   const now = Date.now();
 
@@ -28,6 +28,8 @@ export function seedIfEmpty(store: Store, sim: MikrotikSimulator, engine: Billin
       apiPort: 8728,
       username: 'admin',
       password: 'admin',
+      driver: 'simulator',
+      tls: false,
     },
     {
       id: 'rtr_estate',
@@ -40,10 +42,12 @@ export function seedIfEmpty(store: Store, sim: MikrotikSimulator, engine: Billin
       apiPort: 8728,
       username: 'admin',
       password: 'admin',
+      driver: 'simulator',
+      tls: false,
     },
   ];
   store.data.routers = routers;
-  for (const r of routers) sim.ensureRouter(r.id, r.identity, r.model, now);
+  for (const r of routers) mik.ensureRouter(r.id, r.identity, r.model, now);
 
   // ── Plans ──────────────────────────────────────────────────────────────────
   const plans = [
@@ -92,25 +96,25 @@ export function seedIfEmpty(store: Store, sim: MikrotikSimulator, engine: Billin
       { name: s.name, phone: s.phone, type: s.type, routerId: s.router, username: s.username, password: 'pass1234' },
       now,
     );
-    const created = engine.createSubscription(subscriber.id, s.planId, true, now);
+    const created = await engine.createSubscription(subscriber.id, s.planId, true, now);
     if ('error' in created) continue;
     const invoice = created.invoice;
 
     if (s.scenario === 'active') {
-      engine.recordManualPayment(invoice.id, 'manual', now);
+      await engine.recordManualPayment(invoice.id, 'manual', now);
     } else if (s.scenario === 'grace') {
       // Paid the first period, but it has already lapsed into grace.
-      engine.recordManualPayment(invoice.id, 'manual', now);
+      await engine.recordManualPayment(invoice.id, 'manual', now);
       const sub = engine.getSubscription(created.subscription.id)!;
       sub.currentPeriodStart = new Date(now - 32 * DAY_MS).toISOString();
       sub.currentPeriodEnd = new Date(now - 1 * DAY_MS).toISOString();
-      engine.runCycle(now, []); // pushes it into grace + issues renewal invoice
+      await engine.runCycle(now, []); // pushes it into grace + issues renewal invoice
     } else if (s.scenario === 'suspended') {
       // Never paid; period long past → suspend.
       const sub = engine.getSubscription(created.subscription.id)!;
       sub.currentPeriodStart = new Date(now - 40 * DAY_MS).toISOString();
       sub.currentPeriodEnd = new Date(now - 35 * DAY_MS).toISOString();
-      engine.runCycle(now, []);
+      await engine.runCycle(now, []);
     }
     // 'pending' left as-is (awaiting first payment).
   }

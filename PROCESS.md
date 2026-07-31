@@ -64,36 +64,63 @@ Browser (React SPA)
    │        └── active impl: IndexedDB (local, via `idb`)   ← swap in src/data/index.ts
    │
    └── src/api/client.ts ──► Express server (server/) over REST
-            ├── /api/mikrotik/*  → stateful RouterOS simulator
+            ├── /api/mikrotik/*  → MikrotikManager → driver per router
             └── /api/billing/*   → billing engine
                         │
    server/  Store (JSON file: data/weonline.json)
-            ├── MikrotikSimulator   users · sessions · queues · resource · tick()
-            ├── BillingEngine       plans · subscriptions · invoices · payments · reports
-            └── scheduler           sim.tick() + engine.runCycle()  (setInterval)
+            ├── MikrotikManager  ──dispatch by RouterRecord.driver──┐
+            │        ┌─────────────────────────────────────────────┴────────┐
+            │  MikrotikSimulator (driver: 'simulator')     LiveRouterOsDriver (driver: 'live')
+            │  invents traffic via refresh()               polls a real RouterOS 7 box over REST
+            ├── BillingEngine    plans · subscriptions · invoices · payments · reports
+            └── scheduler        manager.refreshAll() + settlePending() + engine.runCycle()
 ```
 
+### Driver model (simulator ↔ live device)
+Each router is backed by a **driver** chosen by `RouterRecord.driver`:
+- `'simulator'` — the in-memory `MikrotikSimulator` (seeded demo routers).
+- `'live'` — `LiveRouterOsDriver`, a **real** MikroTik (RouterOS 7) over the REST API.
+
+Both implement one interface ([`server/mikrotik/driver.ts`](server/mikrotik/driver.ts)) and
+fill the same `store.simState[routerId]` **read cache**, so the REST routes, the console
+UI, and billing `report()` are identical for both kinds. `MikrotikManager`
+([`server/mikrotik/manager.ts`](server/mikrotik/manager.ts)) dispatches every call to the
+right driver. Because a live device is reached over the network, the provisioning path is
+**async** end-to-end (engine → manager → driver); write failures are caught, logged, and
+surfaced on `RouterRecord.lastError`.
+
 ### The server backend (`server/`)
-Assembled by `server/index.ts#mountApi(app)`, called from `server.ts`.
+Assembled by `server/index.ts#mountApi(app)` (async), called from `server.ts`.
 
 - [`store.ts`](server/store.ts) — dependency-free JSON persistence. In-memory state,
   debounced write-through to `data/weonline.json`, flushed on shutdown. Also `makeId`.
-- [`types.ts`](server/types.ts) — server-owned domain types (billing + sim entities).
+- [`types.ts`](server/types.ts) — server-owned domain types (billing + sim entities),
+  `RouterRecord` (incl. `driver`/`tls`/`insecureTls`/`lastError`), and `ProvisionSpec`.
+- [`mikrotik/driver.ts`](server/mikrotik/driver.ts) — the `MikrotikDriver` interface both
+  drivers implement (`ensureRouter`, `get`, `setOnline`, `upsertUser`, `setUserEnabled`,
+  `removeUser`, `disconnectSession`, `refresh`).
 - [`mikrotik/simulator.ts`](server/mikrotik/simulator.ts) — `MikrotikSimulator`: per-router
-  RouterOS state (`/ppp/secret`, `/ip/hotspot/user`, `/ppp/active`, `/queue/simple`,
-  `/system/resource`). `upsertUser`/`setUserEnabled`/`removeUser` provision users;
-  `tick(nowMs, dtSec)` evolves sessions, traffic, data-cap usage, and telemetry. Uses a
-  seeded PRNG (never `Math.random`/`Date.now` at import time) so restarts resume cleanly.
+  RouterOS state; `refresh(nowMs, dtSec)` evolves sessions, traffic, data-cap usage, and
+  telemetry. Seeded PRNG (never `Math.random`/`Date.now` at import time).
+- [`mikrotik/live.ts`](server/mikrotik/live.ts) — `LiveRouterOsDriver`: talks to a real
+  RouterOS 7 device over `/rest` using Node's built-in `http`/`https` (no dependency;
+  accepts self-signed certs when `insecureTls`). `refresh()` polls `/system/resource`,
+  `/ppp/active`, `/ip/hotspot/active`, `/ppp/secret`, `/ip/hotspot/user`, `/queue/simple`
+  into the cache; writes map to PUT/PATCH/DELETE on `/ppp/secret` etc. and ensure a
+  per-plan `/ppp/profile` (rate-limit) first.
+- [`mikrotik/manager.ts`](server/mikrotik/manager.ts) — `MikrotikManager` facade +
+  `refreshAll()` + `probe()` (read-only connectivity test).
 - [`billing/engine.ts`](server/billing/engine.ts) — `BillingEngine`: plans, subscribers,
   the subscription lifecycle, recurring invoicing, payments (M-Pesa STK simulation +
-  cash/manual), provisioning hooks into the simulator, and `report()`.
+  cash/manual), **async** provisioning via the manager, and `report()`.
 - [`mikrotik/routes.ts`](server/mikrotik/routes.ts) / [`billing/routes.ts`](server/billing/routes.ts)
-  — the REST surface. The legacy `/api/mikrotik/status` endpoint is preserved but now
-  serves **coherent, stateful** telemetry instead of random numbers.
-- [`scheduler.ts`](server/scheduler.ts) — one loop: `sim.tick()` + `settlePending()`
-  every 3s, `engine.runCycle()` every 15s.
-- [`seed.ts`](server/seed.ts) — first-run world (2 routers, 5 plans, 6 subscribers across
-  the lifecycle). Runs only when `data/weonline.json` is absent/empty.
+  — the REST surface. `POST /api/mikrotik/routers` accepts the driver + connection fields;
+  `POST /api/mikrotik/routers/:id/test` is a read-only probe. The legacy
+  `/api/mikrotik/status` endpoint is preserved (coherent telemetry).
+- [`scheduler.ts`](server/scheduler.ts) — one async loop with a re-entrancy guard:
+  `manager.refreshAll()` + `settlePending()` every 3s, `engine.runCycle()` every 15s.
+- [`seed.ts`](server/seed.ts) — first-run world (2 **simulator** routers, 5 plans, 6
+  subscribers across the lifecycle). Runs only when `data/weonline.json` is absent/empty.
 
 The client talks to this over [`src/api/client.ts`](src/api/client.ts) (typed fetch
 wrapper), consumed by [`src/views/BillingView.tsx`](src/views/BillingView.tsx) and
@@ -166,6 +193,10 @@ This app is a **prototype** that now includes a genuinely stateful (but still
 - 🟢 **MikroTik simulator** — real, coherent, stateful RouterOS behaviour (users,
   sessions, queues, traffic, telemetry) in `server/mikrotik/`, persisted and ticked
   server-side. It is a **simulator**, not a connection to a physical RouterOS device.
+- 🟢 **Live RouterOS driver** — routers added with `driver: 'live'` talk to a **real**
+  MikroTik (RouterOS 7) over the REST API: real telemetry/sessions are polled in, and
+  billing provisioning (create/enable/disable/remove users, per-plan profiles) is applied
+  on the device. This acts on live hardware — see TUTORIAL.md for the RouterOS setup.
 - 🟢 **Billing engine** — real subscription lifecycle, recurring invoicing, payment
   settlement, provisioning, and reports in `server/billing/`, persisted to
   `data/weonline.json`.
@@ -202,13 +233,13 @@ weonline_v1/
 │       ├── types.ts             # AuthService + DataStore contracts
 │       ├── models.ts            # Domain models
 │       └── indexeddb/           # Local backend (active): db, store, auth
-├── server/                      # Express backend: sim + billing engine
-│   ├── index.ts                 # mountApi(app): wires store/sim/engine/scheduler
+├── server/                      # Express backend: sim/live drivers + billing engine
+│   ├── index.ts                 # mountApi(app) [async]: wires store/manager/engine/scheduler
 │   ├── store.ts                 # JSON-file persistence + makeId
-│   ├── types.ts                 # Server domain types
-│   ├── scheduler.ts             # Ticking loop (sim.tick + billing cycle)
-│   ├── seed.ts                  # First-run seed world
-│   ├── mikrotik/                # simulator.ts + routes.ts
+│   ├── types.ts                 # Server domain types (RouterRecord.driver, ProvisionSpec)
+│   ├── scheduler.ts             # Async ticking loop (manager.refreshAll + billing cycle)
+│   ├── seed.ts                  # First-run seed world (simulator routers)
+│   ├── mikrotik/                # driver.ts, simulator.ts, live.ts, manager.ts, routes.ts
 │   └── billing/                 # engine.ts + routes.ts
 ├── data/                        # Runtime state (weonline.json) — gitignored
 ├── server.ts                    # Express + Vite dev/prod server; calls mountApi

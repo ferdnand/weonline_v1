@@ -193,7 +193,14 @@ export interface RouterSimState {
 // Persistent store shape
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Basic router config record (mirrors the client's Router shape, server-owned). */
+/**
+ * How a router is backed:
+ *  - 'simulator' — the in-memory MikrotikSimulator (demo routers).
+ *  - 'live'      — a real RouterOS device driven over the REST API.
+ */
+export type RouterDriver = 'simulator' | 'live';
+
+/** Basic router config record (server-owned). Carries live-connection details. */
 export interface RouterRecord {
   id: string;
   name: string;
@@ -205,6 +212,32 @@ export interface RouterRecord {
   apiPort: number;
   username: string;
   password: string;
+  // ── live-device fields ──
+  driver: RouterDriver;
+  /** REST over HTTPS (true) or plain HTTP (false). Only used when driver==='live'. */
+  tls: boolean;
+  /** Accept the router's self-signed TLS cert (disable verification). LAN only. */
+  insecureTls?: boolean;
+  /** Last provisioning/poll error against a live device (surfaced in the UI). */
+  lastError?: string;
+  /** ISO timestamp of the last successful live poll. */
+  lastPolledAt?: string;
+}
+
+/**
+ * The input contract for provisioning a user on a router (PPPoE secret or hotspot
+ * user + rate profile). Shared by every driver.
+ */
+export interface ProvisionSpec {
+  username: string;
+  password: string;
+  service: ServiceType;
+  profile: string; // plan name → maps to a RouterOS profile
+  downloadKbps: number;
+  uploadKbps: number;
+  dataCapMb: number; // 0 = unlimited
+  macAddress?: string;
+  comment?: string;
 }
 
 export interface StoreData {

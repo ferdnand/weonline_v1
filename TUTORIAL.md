@@ -129,18 +129,77 @@ MikroTik console). Miss the cycle and it moves `grace → suspended`, disabling 
 > storefront checkout is a separate, older `setTimeout` fake, not wired to this engine.)
 
 ### MikroTik console (server-backed) 📡
-The **MikroTik** tab is a live window into the RouterOS **simulator**:
+The **MikroTik** tab is a live window into each router — a **simulator** or a **real
+RouterOS device**:
 
 - Pick a router; see its **system resource** (CPU, memory, temp, voltage, uptime,
-  session count) updating every ~3 seconds.
+  session count) updating every ~3 seconds. A `sim`/`live` badge shows the driver.
 - Tabs for **Active** sessions (with per-session throughput and accruing totals), **PPP
   Secrets**, **Hotspot Users** (with data-cap usage bars), and **Simple Queues**.
-- Controls: **Power** a router off/on, **disconnect** a live session, **enable/disable**
-  a user. These hit the same simulator the billing engine provisions against.
+- Controls: **Add Router**, **Edit**, **Delete**, **Test** (live only), **Power** off/on,
+  **disconnect** a live session, **enable/disable** a user. These hit the same driver the
+  billing engine provisions against.
 
-> 🟢 This is a genuinely **stateful simulator** (`server/mikrotik/`), not random numbers
-> and not a connection to a physical RouterOS device. Traffic, sessions, and data caps
-> evolve on a server-side scheduler even with no browser tab open.
+> 🟢 The seeded routers are a genuinely **stateful simulator** (`server/mikrotik/`) — not
+> random numbers. Traffic, sessions, and data caps evolve on a server-side scheduler even
+> with no browser tab open. Routers you add as **live** talk to a real device (next
+> section).
+
+---
+
+## Part 3b — Connect a real MikroTik L009 (RouterOS 7)
+
+WeOnline can drive a **real** MikroTik over the RouterOS **REST API**, alongside the
+simulated demo routers. Paying an invoice then enables a real PPPoE/hotspot user;
+non-payment/cancel disables/removes them.
+
+> ⚠️ A `live` router means billing acts on **real hardware** — it can cut real customers
+> online/offline. Start with the **Test** button and one test user (see below).
+
+### 1. Prepare the L009 (one-time, on the device)
+Connect the PC to a **LAN** port (you'll get `192.168.88.x`; the router is `192.168.88.1`).
+Then, in Winbox/WebFig terminal:
+
+```
+# Enable the REST API (served by the www-ssl service)
+/ip service enable www-ssl              ;# HTTPS on 443  (or: enable www for plain HTTP/80)
+
+# Create a dedicated API user (don't reuse admin)
+/user group add name=weonline policy=read,write,api,rest-api,test,winbox,web
+/user add name=weonline group=weonline password=<strong-password>
+
+# For PPPoE plans: an IP pool + PPPoE server must exist for users to actually connect
+/ip pool add name=pppoe-pool ranges=10.10.0.2-10.10.0.254
+/ppp profile add name=default-encryption local-address=10.10.0.1 remote-address=pppoe-pool
+/interface pppoe-server server add service-name=weonline interface=bridge disabled=no
+```
+
+Verify REST + credentials from the PC:
+```bash
+curl -k -u weonline:<password> https://192.168.88.1/rest/system/resource
+```
+
+### 2. Add it in the app
+Admin → **MikroTik** → **Add Router**:
+- **Driver:** *Live — real RouterOS device (REST)*
+- **IP address:** `192.168.88.1`, **REST port:** `443` (HTTPS) or `80` (HTTP)
+- **Username / Password:** the `weonline` API user
+- **Use HTTPS** + **Accept self-signed certificate** (the L009's cert is self-signed on a LAN)
+
+Click **Save**, then **Test** — you should see the real model, RouterOS version, and uptime.
+The console tabs now show the router's **real** sessions, secrets, and queues.
+
+> 🔐 The API password is stored in `data/weonline.json` (plaintext on disk). To keep it
+> out of that file, set `ROUTER_<ID>_PASSWORD` in `.env.local` (see `.env.example`).
+
+### 3. Provision a real user
+Billing → **Subscribers** → create a subscriber **on the L009 router** → **Enroll** on a
+plan → pay the invoice (M-Pesa or Cash). Within a moment a real `/ppp/secret` appears
+**enabled** on the device (check Winbox). **Suspend** disables it and kicks the session;
+**Cancel** removes it.
+
+> If a write fails (device unreachable, bad creds), the console shows a **Live device
+> error** banner and the router's `lastError`; nothing is silently dropped.
 
 ### Transactions
 The **Transactions** tab lists the legacy IndexedDB billing/recharge history (hotspot
