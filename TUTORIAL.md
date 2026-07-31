@@ -23,24 +23,16 @@ npm install
 bun install
 ```
 
-### 2. Configure Firebase
+### 2. No backend setup needed 🎉
 
-WeOnline needs a Firebase project (Firestore + Authentication).
+Out of the box, WeOnline uses a **local IndexedDB backend** — all data (accounts,
+clients, routers, transactions) is stored in your browser. **No Firebase project, no
+config, and no network are required to run it.** Skip straight to step 4.
 
-1. In the [Firebase console](https://console.firebase.google.com), create a project,
-   add a Web App, and enable:
-   - **Firestore Database**
-   - **Authentication** → Email/Password **and** Google sign-in methods.
-2. Paste your web app config into `firebase-applet-config.json`, including the
-   `firestoreDatabaseId` field.
-3. Deploy the security rules:
-   ```bash
-   firebase deploy --only firestore:rules
-   ```
-   (Or copy `firestore.rules` into the console's Rules tab.)
-
-> ⚠️ Before adding routers in the admin portal, read the **Troubleshooting** section —
-> the shipped rules need a small fix or router saves will be blocked.
+> Want to run against Firebase instead? Edit the two exports in
+> [`src/data/index.ts`](src/data/index.ts) to use the `./firebase/*` implementations,
+> then fill in `firebase-applet-config.json` and deploy `firestore.rules`. See
+> [`MIGRATION.md`](MIGRATION.md).
 
 ### 3. (Optional) Environment variables
 
@@ -96,11 +88,17 @@ No login is required to browse and "buy" packages.
 
 ### Sign in
 1. Click **Admin Login** (top right).
-2. Sign in with Google, or create/login with email + password.
-   - The email **`mongeta5@gmail.com`** is bootstrapped as `admin`. Any other new
-     account becomes a `technician`. (Change this hardcoded email before real use —
-     it lives in both `src/App.tsx` and `firestore.rules`.)
+2. On the local (IndexedDB) backend, use **email + password** — click *Need an account?
+   Sign up* to create one. Accounts are stored in your browser.
+   - The email **`mongeta5@gmail.com`** is bootstrapped as `admin`. Any other account
+     becomes a `technician`. (Change this hardcoded email in `src/App.tsx` before real
+     use.)
+   - **Google sign-in is disabled in local mode** (it needs Firebase). It works only if
+     you switch to the Firebase backend.
 3. An **Admin Portal** tab appears in the nav once you're signed in.
+
+> 💾 Your accounts and admin data live in the browser's IndexedDB. They survive
+> refreshes but are wiped if you clear site data or use a different browser/profile.
 
 ### Dashboard
 A quick overview with four stat cards:
@@ -158,20 +156,29 @@ npm run lint   # tsc --noEmit
 
 ## Part 5 — Troubleshooting
 
+- **I want a clean slate (local backend).**
+  Clear the site's IndexedDB (`weonline` database) and `localStorage` via your browser
+  DevTools → Application tab. All accounts and admin data reset.
+
+- **"Google sign-in is not available in local mode."**
+  Expected — use email + password, or switch to the Firebase backend.
+
+- **Admin tab doesn't appear.**
+  It only shows after a successful sign-in (`userProfile` is set).
+
+### Firebase backend only (if you switched in `src/data/index.ts`)
+
 - **"Missing or insufficient permissions" when adding a router.**
   The shipped `isValidRouter` rule in `firestore.rules` only permits
   `name, location, ipAddress, status`, but the app writes many more fields. Update the
   validator to allow the full router field set, then redeploy the rules.
 
-- **Google/email login fails with `auth/operation-not-allowed`.**
+- **Login fails with `auth/operation-not-allowed`.**
   Enable that sign-in method in Firebase Console → Authentication → Sign-in method.
 
 - **"The client is offline" console error.**
   Check `firebase-applet-config.json` — the config or `firestoreDatabaseId` is likely
   wrong.
-
-- **Admin tab doesn't appear.**
-  It only shows after a successful sign-in (`userProfile` is set).
 
 ---
 

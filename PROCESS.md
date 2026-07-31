@@ -21,22 +21,25 @@ Firebase (Auth + Firestore) and served through a small Express + Vite server.
 
 ## 2. Environment setup
 
-1. Copy the example env file and fill in real values:
+The app runs against a pluggable data backend selected in
+[`src/data/index.ts`](src/data/index.ts). **The active backend is local IndexedDB**,
+so **no Firebase project or network is required to run the app locally.** Just install
+and `npm run dev`.
+
+1. (Optional) Copy the example env file:
    ```
    cp .env.example .env.local
    ```
    - `GEMINI_API_KEY` — only needed if/when Gemini features are wired up
      (the `@google/genai` dependency is currently installed but unused).
    - `APP_URL` — the hosted URL; used for self-referential links.
+   Neither is required for the local IndexedDB backend.
 
-2. Firebase client config lives in **`firebase-applet-config.json`** and is imported
-   directly by [`src/firebase.ts`](src/firebase.ts). Update it with your project's
-   web app config and `firestoreDatabaseId`.
-
-3. Deploy the security rules in [`firestore.rules`](firestore.rules) to your Firebase
-   project (`firebase deploy --only firestore:rules`, or paste via the console).
-   See the **Known gotchas** section — the router validator currently rejects the
-   fields the app writes.
+2. **Only if you switch the backend to Firebase** (see §4): Firebase client config
+   lives in **`firebase-applet-config.json`** ([`src/firebase.ts`](src/firebase.ts)),
+   and the security rules in [`firestore.rules`](firestore.rules) must be deployed
+   (`firebase deploy --only firestore:rules`). See **Known gotchas** — the router
+   validator currently rejects the fields the app writes.
 
 ---
 
@@ -60,14 +63,32 @@ Firebase (Auth + Firestore) and served through a small Express + Vite server.
 ```
 Browser (React SPA)
    │
-   ├── Firebase Auth  ──────────► Google / Email-Password sign-in
-   ├── Firestore (realtime) ────► users, clients, routers, transactions
+   ├── src/data (abstraction) ──► authService + dataStore  (backend-agnostic)
+   │        └── active impl: IndexedDB (local)   ← swap in src/data/index.ts
+   │            other impls: Firebase (kept), Supabase (future — MIGRATION.md)
    └── /api/mikrotik/status ────► Express (server.ts) — SIMULATED router telemetry
 ```
 
+### The data layer (`src/data/`)
+The app depends **only** on two interfaces — it never imports `firebase/*` or touches
+IndexedDB directly. See [`AUDIT.md`](AUDIT.md) and [`MIGRATION.md`](MIGRATION.md).
+
+- [`types.ts`](src/data/types.ts) — `AuthService` + `DataStore` contracts.
+- [`models.ts`](src/data/models.ts) — domain models (`Client`, `Router`, etc.),
+  extracted out of `App.tsx`.
+- [`index.ts`](src/data/index.ts) — **the one place a backend is chosen.** Exports
+  `authService` + `dataStore`.
+- `indexeddb/` — **active** local backend. `store.ts` emulates Firestore-style
+  realtime `subscribe` with an in-memory pub/sub; `auth.ts` does salted-SHA-256
+  email/password auth with the session id in `localStorage`.
+- `firebase/` — Firebase Auth + Firestore implementation, kept for a one-line
+  flip-back. Not bundled while inactive.
+
+To change backends, edit the two exports in `src/data/index.ts` only.
+
 - **Single-file frontend:** almost the entire UI lives in
-  [`src/App.tsx`](src/App.tsx) (~2000 lines) — types, package catalog, all views,
-  modals, and Firestore calls.
+  [`src/App.tsx`](src/App.tsx) (~1900 lines) — package catalog, all views, modals, and
+  `authService`/`dataStore` calls. Domain types now live in `src/data/models.ts`.
 - **Entry:** [`src/main.tsx`](src/main.tsx) → renders `<App/>` into `index.html`.
 - **Server:** [`server.ts`](server.ts) runs Vite in middleware mode during dev and
   serves the built SPA in production. Its only API route returns **randomized** router
@@ -86,9 +107,11 @@ Browser (React SPA)
 - `transactions/{id}` — billing/recharge history
 
 ### Roles & auth
-- Role-based access enforced in [`firestore.rules`](firestore.rules): `admin` vs
-  `technician`. Admin is currently hardcoded to `mongeta5@gmail.com` (both in the
-  rules and in `App.tsx`'s first-login bootstrap). Change this before real deployment.
+- The first-login bootstrap in `App.tsx` assigns `admin` to `mongeta5@gmail.com` and
+  `technician` to everyone else. On the **Firebase** backend, role-based access is also
+  enforced server-side in [`firestore.rules`](firestore.rules). On the **IndexedDB**
+  backend there is no server, so the client-side role is the only gate (fine for local
+  dev). Change the hardcoded email before any real deployment.
 
 ---
 
@@ -103,7 +126,9 @@ This app is largely a **prototype**. Before treating anything as production-read
   RouterOS API connection.
 - 🟡 **Customer subscriptions & payments** — held in React state only; lost on
   refresh. Only admin-side `clients`, `routers`, and `transactions` persist.
-- 🟢 **Real:** Firebase Auth, admin CRUD for clients/routers, transaction logging.
+- 🟢 **Real:** auth + admin CRUD for clients/routers + transaction logging. With the
+  **IndexedDB** backend these persist in the browser (survive refresh; cleared when you
+  clear site data / IndexedDB). With **Firebase** they persist in Firestore.
 
 ---
 
@@ -112,10 +137,16 @@ This app is largely a **prototype**. Before treating anything as production-read
 ```
 weonline_v1/
 ├── src/
-│   ├── App.tsx                  # Entire UI + logic (large single file)
+│   ├── App.tsx                  # UI + logic (large single file)
 │   ├── main.tsx                 # React entry point
-│   ├── firebase.ts              # Firebase app/auth/firestore init
-│   └── index.css                # Tailwind entry
+│   ├── firebase.ts              # Firebase SDK init (used only by src/data/firebase/*)
+│   ├── index.css                # Tailwind entry
+│   └── data/                    # Backend-agnostic data layer
+│       ├── index.ts             # Backend selector (active: IndexedDB)
+│       ├── types.ts             # AuthService + DataStore contracts
+│       ├── models.ts            # Domain models
+│       ├── indexeddb/           # Local backend (active): db, store, auth
+│       └── firebase/            # Firebase backend (kept for flip-back)
 ├── server.ts                    # Express + Vite dev/prod server, mock MikroTik API
 ├── index.html                   # SPA host page
 ├── firebase-applet-config.json  # Firebase client config (imported by firebase.ts)
@@ -151,8 +182,9 @@ weonline_v1/
   fields (username, apiPort, isMikrotik, model, cpu, memory, uptime, temperature,
   clientsCount). Update the validator before deploying rules, or router create/update
   will fail with permission errors.
-- **Duplicate schema files:** `firebase-blueprint.json` and `metadata.json` hold the
-  same content. Consider consolidating.
+- **`firebase-blueprint.json`** (Firestore entity schema) and **`metadata.json`** (AI
+  Studio applet manifest declaring the Gemini capability) are both leftover from the AI
+  Studio origin and are not consumed by the app code. Prune when convenient.
 - **Two lockfiles:** `bun.lock` + `package-lock.json`. Standardize on one.
 - **Unused dependency:** `@google/genai` is installed but not referenced.
 - **Hardcoded admin email** in two places (`App.tsx`, `firestore.rules`).

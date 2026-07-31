@@ -37,33 +37,18 @@ import {
   Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  onAuthStateChanged, 
-  signOut,
-  User as FirebaseUser
-} from 'firebase/auth';
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs, 
-  onSnapshot, 
-  query, 
-  where, 
-  orderBy, 
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  Timestamp,
-  serverTimestamp
-} from 'firebase/firestore';
-import { auth, db } from './firebase';
-import { format, addDays, addWeeks, isAfter, parseISO } from 'date-fns';
+import { authService, dataStore } from './data';
+import type {
+  AuthUser,
+  Package,
+  Subscription,
+  Payment,
+  Client,
+  Router,
+  Transaction,
+  UserProfile,
+} from './data';
+import { format, addDays } from 'date-fns';
 
 // Error Handling
 enum OperationType {
@@ -75,94 +60,9 @@ enum OperationType {
   WRITE = 'write',
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  console.error(`Firestore Error [${operationType}] at ${path}:`, error);
+function handleDataError(error: unknown, operationType: OperationType, path: string | null) {
+  console.error(`Data Error [${operationType}] at ${path}:`, error);
   throw error;
-}
-
-// Types for our packages
-interface Package {
-  id: string;
-  name: string;
-  speed: string;
-  price: number;
-  duration: string;
-  features: string[];
-  popular?: boolean;
-}
-
-interface Subscription {
-  id: string;
-  packageName: string;
-  speed: string;
-  price: number;
-  activationDate: string;
-  expiryDate: string;
-  macAddress: string;
-  status: 'active' | 'expired';
-}
-
-interface Payment {
-  id: string;
-  subscriptionId: string;
-  packageName: string;
-  amount: number;
-  date: string;
-  phoneNumber: string;
-  transactionId: string;
-  status: 'completed' | 'failed';
-}
-
-interface Client {
-  id: string;
-  name: string;
-  type: 'hotspot' | 'pppoe';
-  planName: string;
-  price: number;
-  startDate: string;
-  expiryDate: string;
-  status: 'active' | 'expired';
-  online: boolean;
-  phoneNumber: string;
-  macAddress?: string;
-  routerId?: string;
-  pppoeUsername?: string;
-  pppoePassword?: string;
-}
-
-interface Router {
-  id: string;
-  name: string;
-  location: string;
-  ipAddress: string;
-  status: 'online' | 'offline';
-  model?: string;
-  username?: string;
-  password?: string;
-  apiPort?: number;
-  cpu?: number;
-  memory?: number;
-  uptime?: string;
-  temperature?: number;
-  clientsCount?: number;
-  isMikrotik?: boolean;
-}
-
-interface Transaction {
-  id: string;
-  clientId: string;
-  clientName: string;
-  amount: number;
-  date: string;
-  planName: string;
-  type: string;
-}
-
-interface UserProfile {
-  uid: string;
-  email: string;
-  role: 'admin' | 'technician';
-  name: string;
 }
 
 const packages: Record<string, Package[]> = {
@@ -259,7 +159,7 @@ export default function App() {
   const [phoneNumber, setPhoneNumber] = useState('');
   
   // Firebase State
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [routers, setRouters] = useState<Router[]>([]);
@@ -306,22 +206,22 @@ export default function App() {
 
   // Auth Effect
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          setUserProfile(userDoc.data() as UserProfile);
+    const unsubscribe = authService.onAuthStateChanged(async (authUser) => {
+      setUser(authUser);
+      if (authUser) {
+        const existing = await dataStore.get<UserProfile>('users', authUser.uid);
+        if (existing) {
+          setUserProfile(existing);
         } else {
           // Default admin for the first user if it matches the email
-          const isAdmin = firebaseUser.email === 'mongeta5@gmail.com';
+          const isAdmin = authUser.email === 'mongeta5@gmail.com';
           const profile: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
+            uid: authUser.uid,
+            email: authUser.email || '',
             role: isAdmin ? 'admin' : 'technician',
-            name: firebaseUser.displayName || 'User'
+            name: authUser.displayName || 'User'
           };
-          await setDoc(doc(db, 'users', firebaseUser.uid), profile);
+          await dataStore.set('users', authUser.uid, profile);
           setUserProfile(profile);
         }
       } else {
@@ -337,16 +237,10 @@ export default function App() {
   useEffect(() => {
     if (!userProfile) return;
 
-    const unsubClients = onSnapshot(collection(db, 'clients'), (snapshot) => {
-      setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client)));
-    });
-
-    const unsubRouters = onSnapshot(collection(db, 'routers'), (snapshot) => {
-      setRouters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Router)));
-    });
-
-    const unsubTransactions = onSnapshot(query(collection(db, 'transactions'), orderBy('date', 'desc')), (snapshot) => {
-      setAllTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+    const unsubClients = dataStore.subscribe<Client>('clients', setClients);
+    const unsubRouters = dataStore.subscribe<Router>('routers', setRouters);
+    const unsubTransactions = dataStore.subscribe<Transaction>('transactions', setAllTransactions, {
+      orderBy: { field: 'date', dir: 'desc' },
     });
 
     return () => {
@@ -367,8 +261,8 @@ export default function App() {
           const response = await fetch(`/api/mikrotik/status?ip=${router.ipAddress}`);
           if (response.ok) {
             const data = await response.json();
-            // Update Firestore with simulated data
-            await updateDoc(doc(db, 'routers', router.id), {
+            // Persist the simulated telemetry via the data layer
+            await dataStore.update('routers', router.id, {
               cpu: data.cpu,
               memory: data.memory,
               temperature: data.temperature,
@@ -394,15 +288,14 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      await authService.signInWithGoogle();
       setIsLoginModalOpen(false);
     } catch (error: any) {
       if (error.code === 'auth/popup-closed-by-user') {
         setLoginError('Login was cancelled. Please try again if you wish to sign in.');
       } else {
         console.error("Google login failed:", error);
-        setLoginError('Google login failed. Please try again.');
+        setLoginError(error.message || 'Google login failed. Please try again.');
       }
     }
   };
@@ -412,9 +305,9 @@ export default function App() {
     setLoginError('');
     try {
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password);
+        await authService.signUpWithEmail(email, password);
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await authService.signInWithEmail(email, password);
       }
       setIsLoginModalOpen(false);
       setEmail('');
@@ -431,7 +324,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await authService.signOut();
     setView('plans');
   };
 
@@ -516,7 +409,7 @@ export default function App() {
 
         // If it's a hotspot client, we could also record it in Firestore if we wanted to track all sales
         try {
-          await addDoc(collection(db, 'transactions'), {
+          await dataStore.add('transactions', {
             clientId: 'guest',
             clientName: `Guest (${phoneNumber})`,
             amount: selectedPackage?.price || 0,
@@ -562,25 +455,25 @@ export default function App() {
 
     try {
       if (editingClient) {
-        await updateDoc(doc(db, 'clients', editingClient.id), clientData);
+        await dataStore.update('clients', editingClient.id, clientData);
       } else {
-        await addDoc(collection(db, 'clients'), clientData);
+        await dataStore.add('clients', clientData);
       }
       setIsClientModalOpen(false);
       setEditingClient(null);
     } catch (e) {
-      handleFirestoreError(e, editingClient ? OperationType.UPDATE : OperationType.CREATE, 'clients');
+      handleDataError(e, editingClient ? OperationType.UPDATE : OperationType.CREATE, 'clients');
     }
   };
 
   const rechargeClient = async (client: Client, days: number) => {
     const newExpiry = addDays(new Date(client.expiryDate), days);
     try {
-      await updateDoc(doc(db, 'clients', client.id), {
+      await dataStore.update('clients', client.id, {
         expiryDate: newExpiry.toISOString(),
         status: 'active'
       });
-      await addDoc(collection(db, 'transactions'), {
+      await dataStore.add('transactions', {
         clientId: client.id,
         clientName: client.name,
         amount: client.price,
@@ -589,27 +482,27 @@ export default function App() {
         type: 'recharge'
       });
     } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `clients/${client.id}`);
+      handleDataError(e, OperationType.UPDATE, `clients/${client.id}`);
     }
   };
 
   const disconnectClient = async (client: Client) => {
     try {
-      await updateDoc(doc(db, 'clients', client.id), {
+      await dataStore.update('clients', client.id, {
         status: 'expired',
         online: false
       });
     } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `clients/${client.id}`);
+      handleDataError(e, OperationType.UPDATE, `clients/${client.id}`);
     }
   };
 
   const deleteClient = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this client?")) return;
     try {
-      await deleteDoc(doc(db, 'clients', id));
+      await dataStore.remove('clients', id);
     } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `clients/${id}`);
+      handleDataError(e, OperationType.DELETE, `clients/${id}`);
     }
   };
 
@@ -634,14 +527,14 @@ export default function App() {
 
     try {
       if (editingRouter) {
-        await updateDoc(doc(db, 'routers', editingRouter.id), routerData);
+        await dataStore.update('routers', editingRouter.id, routerData);
       } else {
-        await addDoc(collection(db, 'routers'), routerData);
+        await dataStore.add('routers', routerData);
       }
       setIsRouterModalOpen(false);
       setEditingRouter(null);
     } catch (e) {
-      handleFirestoreError(e, editingRouter ? OperationType.UPDATE : OperationType.CREATE, 'routers');
+      handleDataError(e, editingRouter ? OperationType.UPDATE : OperationType.CREATE, 'routers');
     }
   };
 
@@ -1681,7 +1574,7 @@ export default function App() {
                           {userProfile?.role === 'admin' && (
                             <button 
                               onClick={async () => {
-                                if (window.confirm("Delete router?")) await deleteDoc(doc(db, 'routers', router.id));
+                                if (window.confirm("Delete router?")) await dataStore.remove('routers', router.id);
                               }}
                               className="p-2 text-slate-400 hover:text-red-600 transition-colors"
                             >
