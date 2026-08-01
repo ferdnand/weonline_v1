@@ -1,0 +1,690 @@
+{
+  "meta": {
+    "seeded": true,
+    "invoiceSeq": 7,
+    "version": 1
+  },
+  "users": [
+    {
+      "uid": "usr_ms9xdeze0015",
+      "email": "admin@evac.test",
+      "role": "admin",
+      "displayName": null,
+      "passwordHash": "268cc6b23cad722de7b5f539c1ca3fc3742a8a7d2ead2d0f1ee908f9d3839b71",
+      "salt": "9f49ca9928471840c7ca05ff0dd21f78",
+      "iterations": 210000,
+      "createdAt": "2026-08-01T05:22:44.378Z"
+    }
+  ],
+  "plans": [
+    {
+      "name": "Hotspot Daily",
+      "type": "hotspot",
+      "speedLabel": "Up to 5Mbps",
+      "downloadKbps": 5000,
+      "uploadKbps": 5000,
+      "price": 60,
+      "durationDays": 1,
+      "dataCapMb": 2048,
+      "active": true,
+      "id": "plan_ms9xd07y0001",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Hotspot Weekly",
+      "type": "hotspot",
+      "speedLabel": "Up to 8Mbps",
+      "downloadKbps": 8000,
+      "uploadKbps": 8000,
+      "price": 300,
+      "durationDays": 7,
+      "dataCapMb": 0,
+      "active": true,
+      "id": "plan_ms9xd07y0002",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Home Basic",
+      "type": "pppoe",
+      "speedLabel": "Up to 10Mbps",
+      "downloadKbps": 10000,
+      "uploadKbps": 10000,
+      "price": 1500,
+      "durationDays": 30,
+      "dataCapMb": 0,
+      "active": true,
+      "id": "plan_ms9xd07y0003",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Home Plus",
+      "type": "pppoe",
+      "speedLabel": "Up to 20Mbps",
+      "downloadKbps": 20000,
+      "uploadKbps": 20000,
+      "price": 2500,
+      "durationDays": 30,
+      "dataCapMb": 0,
+      "active": true,
+      "id": "plan_ms9xd07y0004",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Business",
+      "type": "pppoe",
+      "speedLabel": "Up to 40Mbps",
+      "downloadKbps": 40000,
+      "uploadKbps": 40000,
+      "price": 6000,
+      "durationDays": 30,
+      "dataCapMb": 0,
+      "active": true,
+      "id": "plan_ms9xd07y0005",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    }
+  ],
+  "subscribers": [
+    {
+      "name": "Amina Wanjiru",
+      "phone": "254712345678",
+      "type": "pppoe",
+      "routerId": "rtr_hq",
+      "username": "amina.w",
+      "password": "enc:v1:KirMpiuVPk08dbAj:U4E+WKEtD3O/XbR4WsH3nQ==:hzZBsWonUCs=",
+      "id": "cust_ms9xd07y0006",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Brian Otieno",
+      "phone": "254723456789",
+      "type": "pppoe",
+      "routerId": "rtr_hq",
+      "username": "brian.o",
+      "password": "enc:v1:ayQ10SqIiZvALNyW:VnbkjGLv6QtgXL2yQJo4pg==:sGgkNx/lH5g=",
+      "id": "cust_ms9xd07y000b",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Cynthia Mwikali",
+      "phone": "254734567890",
+      "type": "pppoe",
+      "routerId": "rtr_estate",
+      "username": "cynthia.m",
+      "password": "enc:v1:KxgTt3eqZ7IaOqmw:PSrMzDdOzX59equ6q3/c1A==:ZS2jEQS4LTU=",
+      "id": "cust_ms9xd07y000g",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "David Kiplagat",
+      "phone": "254745678901",
+      "type": "pppoe",
+      "routerId": "rtr_estate",
+      "username": "david.k",
+      "password": "enc:v1:yTNFQRW16AiZ3RiO:INNDpUQuMEntiqcupP2zbQ==:0JZs9tyzQmU=",
+      "id": "cust_ms9xd07y000n",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Esther Njeri",
+      "phone": "254756789012",
+      "type": "hotspot",
+      "routerId": "rtr_hq",
+      "username": "esther.n",
+      "password": "enc:v1:FqIKRC8pBGCIaDdn:eC9OGBLro3F+aMgOcIh7eg==:zz0peWsklUs=",
+      "id": "cust_ms9xd07y000s",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Felix Barasa",
+      "phone": "254767890123",
+      "type": "hotspot",
+      "routerId": "rtr_estate",
+      "username": "felix.b",
+      "password": "enc:v1:AFg9FNJe2g3rtvfk:yiu69zaVMWBUSmta7lPPXA==:/IfSsfxLXNg=",
+      "id": "cust_ms9xd07y000x",
+      "createdAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "name": "Test User",
+      "phone": "254700000000",
+      "type": "pppoe",
+      "routerId": "rtr_hq",
+      "username": "test.user",
+      "password": "enc:v1:5E6GPhckAtFKJNFV:Rz1mc4nf6o7Y/WFW1WoPCg==:47wMuZXr25sL6Ri9y+s=",
+      "id": "cust_ms9xdf560017",
+      "createdAt": "2026-08-01T05:22:44.586Z"
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "sub_ms9xd07y0007",
+      "subscriberId": "cust_ms9xd07y0006",
+      "planId": "plan_ms9xd07y0004",
+      "status": "active",
+      "startDate": "2026-08-01T05:22:25.246Z",
+      "currentPeriodStart": "2026-08-01T05:22:25.246Z",
+      "currentPeriodEnd": "2026-08-31T05:22:25.246Z",
+      "autoRenew": true,
+      "provisioned": true,
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "updatedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "sub_ms9xd07y000c",
+      "subscriberId": "cust_ms9xd07y000b",
+      "planId": "plan_ms9xd07y0003",
+      "status": "active",
+      "startDate": "2026-08-01T05:22:25.246Z",
+      "currentPeriodStart": "2026-08-01T05:22:25.246Z",
+      "currentPeriodEnd": "2026-08-31T05:22:25.246Z",
+      "autoRenew": true,
+      "provisioned": true,
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "updatedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "sub_ms9xd07y000h",
+      "subscriberId": "cust_ms9xd07y000g",
+      "planId": "plan_ms9xd07y0005",
+      "status": "grace",
+      "startDate": "2026-08-01T05:22:25.246Z",
+      "currentPeriodStart": "2026-06-30T05:22:25.246Z",
+      "currentPeriodEnd": "2026-07-31T05:22:25.246Z",
+      "autoRenew": true,
+      "provisioned": true,
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "updatedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "sub_ms9xd07y000o",
+      "subscriberId": "cust_ms9xd07y000n",
+      "planId": "plan_ms9xd07y0003",
+      "status": "suspended",
+      "startDate": "2026-08-01T05:22:25.246Z",
+      "currentPeriodStart": "2026-06-22T05:22:25.246Z",
+      "currentPeriodEnd": "2026-06-27T05:22:25.246Z",
+      "autoRenew": true,
+      "provisioned": false,
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "updatedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "sub_ms9xd07y000t",
+      "subscriberId": "cust_ms9xd07y000s",
+      "planId": "plan_ms9xd07y0002",
+      "status": "active",
+      "startDate": "2026-08-01T05:22:25.246Z",
+      "currentPeriodStart": "2026-08-01T05:22:25.246Z",
+      "currentPeriodEnd": "2026-08-08T05:22:25.246Z",
+      "autoRenew": true,
+      "provisioned": true,
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "updatedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "sub_ms9xd07y000y",
+      "subscriberId": "cust_ms9xd07y000x",
+      "planId": "plan_ms9xd07y0002",
+      "status": "pending",
+      "startDate": "2026-08-01T05:22:25.246Z",
+      "currentPeriodStart": "2026-08-01T05:22:25.246Z",
+      "currentPeriodEnd": "2026-08-08T05:22:25.246Z",
+      "autoRenew": true,
+      "provisioned": false,
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "updatedAt": "2026-08-01T05:22:25.246Z"
+    }
+  ],
+  "invoices": [
+    {
+      "id": "inv_ms9xd07y0008",
+      "number": "INV-000001",
+      "subscriptionId": "sub_ms9xd07y0007",
+      "subscriberId": "cust_ms9xd07y0006",
+      "planId": "plan_ms9xd07y0004",
+      "amount": 2500,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-31T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "paid",
+      "paidDate": "2026-08-01T05:22:25.246Z",
+      "paymentId": "pay_ms9xd07y000a"
+    },
+    {
+      "id": "inv_ms9xd07y000d",
+      "number": "INV-000002",
+      "subscriptionId": "sub_ms9xd07y000c",
+      "subscriberId": "cust_ms9xd07y000b",
+      "planId": "plan_ms9xd07y0003",
+      "amount": 1500,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-31T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "paid",
+      "paidDate": "2026-08-01T05:22:25.246Z",
+      "paymentId": "pay_ms9xd07y000f"
+    },
+    {
+      "id": "inv_ms9xd07y000i",
+      "number": "INV-000003",
+      "subscriptionId": "sub_ms9xd07y000h",
+      "subscriberId": "cust_ms9xd07y000g",
+      "planId": "plan_ms9xd07y0005",
+      "amount": 6000,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-31T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "paid",
+      "paidDate": "2026-08-01T05:22:25.246Z",
+      "paymentId": "pay_ms9xd07y000k"
+    },
+    {
+      "id": "inv_ms9xd07y000l",
+      "number": "INV-000004",
+      "subscriptionId": "sub_ms9xd07y000h",
+      "subscriberId": "cust_ms9xd07y000g",
+      "planId": "plan_ms9xd07y0005",
+      "amount": 6000,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-31T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "unpaid"
+    },
+    {
+      "id": "inv_ms9xd07y000p",
+      "number": "INV-000005",
+      "subscriptionId": "sub_ms9xd07y000o",
+      "subscriberId": "cust_ms9xd07y000n",
+      "planId": "plan_ms9xd07y0003",
+      "amount": 1500,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-31T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "unpaid"
+    },
+    {
+      "id": "inv_ms9xd07y000u",
+      "number": "INV-000006",
+      "subscriptionId": "sub_ms9xd07y000t",
+      "subscriberId": "cust_ms9xd07y000s",
+      "planId": "plan_ms9xd07y0002",
+      "amount": 300,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-08T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "paid",
+      "paidDate": "2026-08-01T05:22:25.246Z",
+      "paymentId": "pay_ms9xd07y000w"
+    },
+    {
+      "id": "inv_ms9xd07y000z",
+      "number": "INV-000007",
+      "subscriptionId": "sub_ms9xd07y000y",
+      "subscriberId": "cust_ms9xd07y000x",
+      "planId": "plan_ms9xd07y0002",
+      "amount": 300,
+      "periodStart": "2026-08-01T05:22:25.246Z",
+      "periodEnd": "2026-08-08T05:22:25.246Z",
+      "issuedDate": "2026-08-01T05:22:25.246Z",
+      "dueDate": "2026-08-04T05:22:25.246Z",
+      "status": "unpaid"
+    }
+  ],
+  "payments": [
+    {
+      "id": "pay_ms9xd07y000a",
+      "invoiceId": "inv_ms9xd07y0008",
+      "subscriberId": "cust_ms9xd07y0006",
+      "subscriptionId": "sub_ms9xd07y0007",
+      "amount": 2500,
+      "method": "manual",
+      "status": "completed",
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "completedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "pay_ms9xd07y000f",
+      "invoiceId": "inv_ms9xd07y000d",
+      "subscriberId": "cust_ms9xd07y000b",
+      "subscriptionId": "sub_ms9xd07y000c",
+      "amount": 1500,
+      "method": "manual",
+      "status": "completed",
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "completedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "pay_ms9xd07y000k",
+      "invoiceId": "inv_ms9xd07y000i",
+      "subscriberId": "cust_ms9xd07y000g",
+      "subscriptionId": "sub_ms9xd07y000h",
+      "amount": 6000,
+      "method": "manual",
+      "status": "completed",
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "completedAt": "2026-08-01T05:22:25.246Z"
+    },
+    {
+      "id": "pay_ms9xd07y000w",
+      "invoiceId": "inv_ms9xd07y000u",
+      "subscriberId": "cust_ms9xd07y000s",
+      "subscriptionId": "sub_ms9xd07y000t",
+      "amount": 300,
+      "method": "manual",
+      "status": "completed",
+      "createdAt": "2026-08-01T05:22:25.246Z",
+      "completedAt": "2026-08-01T05:22:25.246Z"
+    }
+  ],
+  "routers": [
+    {
+      "id": "rtr_hq",
+      "name": "HQ Core Router",
+      "location": "Nairobi CBD",
+      "ipAddress": "192.168.88.1",
+      "model": "MikroTik CCR2004-1G-12S+2XS",
+      "identity": "WeOnline-HQ",
+      "status": "online",
+      "apiPort": 8728,
+      "username": "admin",
+      "password": "enc:v1:mgVX/89MAGmUmORx:m3WlYp+GAONBHSx1aENVHg==:D53G5TE=",
+      "driver": "simulator",
+      "tls": false
+    },
+    {
+      "id": "rtr_estate",
+      "name": "Estate Distribution",
+      "location": "Kikuyu",
+      "ipAddress": "192.168.89.1",
+      "model": "MikroTik L009UiGS-RM",
+      "identity": "WeOnline-Estate",
+      "status": "online",
+      "apiPort": 8728,
+      "username": "admin",
+      "password": "enc:v1:r/iqVZxyv9ZPYNvR:sLbdF6efbJPsSx63EW679A==:Mn361F4=",
+      "driver": "simulator",
+      "tls": false
+    }
+  ],
+  "simState": {
+    "rtr_hq": {
+      "routerId": "rtr_hq",
+      "identity": "WeOnline-HQ",
+      "model": "MikroTik CCR2004-1G-12S+2XS",
+      "online": true,
+      "resource": {
+        "cpuLoad": 14,
+        "totalMemoryMb": 512,
+        "freeMemoryMb": 278,
+        "memoryUsedPct": 46,
+        "temperature": 41,
+        "voltage": 23.9,
+        "uptimeSec": 144719,
+        "version": "7.15.3 (stable)",
+        "boardName": "MikroTik CCR2004-1G-12S+2XS",
+        "cpuFrequencyMhz": 800
+      },
+      "pppSecrets": [
+        {
+          "name": "amina.w",
+          "password": "pass1234",
+          "profile": "Home Plus",
+          "service": "pppoe",
+          "rateLimit": "20M/20M",
+          "disabled": false,
+          "comment": "Amina Wanjiru · Home Plus"
+        },
+        {
+          "name": "brian.o",
+          "password": "pass1234",
+          "profile": "Home Basic",
+          "service": "pppoe",
+          "rateLimit": "10M/10M",
+          "disabled": false,
+          "comment": "Brian Otieno · Home Basic"
+        }
+      ],
+      "hotspotUsers": [
+        {
+          "name": "esther.n",
+          "password": "pass1234",
+          "profile": "Hotspot Weekly",
+          "rateLimit": "8M/8M",
+          "limitBytesTotal": 0,
+          "bytesIn": 1632360000,
+          "bytesOut": 405963750,
+          "disabled": false,
+          "comment": "Esther Njeri · Hotspot Weekly"
+        }
+      ],
+      "activeSessions": [
+        {
+          "id": "sess_ms9zx7ri0098",
+          "name": "amina.w",
+          "service": "pppoe",
+          "address": "10.10.1.75",
+          "macAddress": "1D:60:98:2F:E1:2B",
+          "uptimeSec": 30,
+          "bytesIn": 39499875,
+          "bytesOut": 7474875,
+          "rateRxKbps": 8049,
+          "rateTxKbps": 2368,
+          "since": "2026-08-01T06:34:07.374Z"
+        },
+        {
+          "id": "sess_ms9zxsnl009b",
+          "name": "brian.o",
+          "service": "pppoe",
+          "address": "10.10.1.152",
+          "macAddress": "57:96:10:30:BC:43",
+          "uptimeSec": 3,
+          "bytesIn": 3555375,
+          "bytesOut": 985125,
+          "rateRxKbps": 9481,
+          "rateTxKbps": 2627,
+          "since": "2026-08-01T06:34:34.449Z"
+        }
+      ],
+      "queues": [
+        {
+          "id": "queue_ms9xd07y0009",
+          "name": "q-amina.w",
+          "target": "10.10.1.75",
+          "maxLimit": "20M/20M",
+          "bytesIn": 4741349375,
+          "bytesOut": 1198942375,
+          "disabled": false
+        },
+        {
+          "id": "queue_ms9xd07y000e",
+          "name": "q-brian.o",
+          "target": "10.10.1.152",
+          "maxLimit": "10M/10M",
+          "bytesIn": 2397279625,
+          "bytesOut": 612604750,
+          "disabled": false
+        },
+        {
+          "id": "queue_ms9xd07y000v",
+          "name": "q-esther.n",
+          "target": "192.168.88.65",
+          "maxLimit": "8M/8M",
+          "bytesIn": 1632360000,
+          "bytesOut": 405963750,
+          "disabled": false
+        }
+      ],
+      "uplinkBytesIn": 8770989000,
+      "uplinkBytesOut": 2217510875,
+      "lastTick": "2026-08-01T06:34:34.449Z"
+    },
+    "rtr_estate": {
+      "routerId": "rtr_estate",
+      "identity": "WeOnline-Estate",
+      "model": "MikroTik L009UiGS-RM",
+      "online": true,
+      "resource": {
+        "cpuLoad": 10,
+        "totalMemoryMb": 512,
+        "freeMemoryMb": 281,
+        "memoryUsedPct": 45,
+        "temperature": 41,
+        "voltage": 24.4,
+        "uptimeSec": 15119,
+        "version": "7.15.3 (stable)",
+        "boardName": "MikroTik L009UiGS-RM",
+        "cpuFrequencyMhz": 800
+      },
+      "pppSecrets": [
+        {
+          "name": "cynthia.m",
+          "password": "pass1234",
+          "profile": "Business",
+          "service": "pppoe",
+          "rateLimit": "40M/40M",
+          "disabled": false,
+          "comment": "Cynthia Mwikali · Business"
+        },
+        {
+          "name": "david.k",
+          "password": "pass1234",
+          "profile": "Home Basic",
+          "service": "pppoe",
+          "rateLimit": "10M/10M",
+          "disabled": true,
+          "comment": "David Kiplagat · Home Basic"
+        }
+      ],
+      "hotspotUsers": [
+        {
+          "name": "felix.b",
+          "password": "pass1234",
+          "profile": "Hotspot Weekly",
+          "rateLimit": "8M/8M",
+          "limitBytesTotal": 0,
+          "bytesIn": 0,
+          "bytesOut": 0,
+          "disabled": true,
+          "comment": "Felix Barasa · Hotspot Weekly"
+        }
+      ],
+      "activeSessions": [
+        {
+          "id": "sess_ms9zww5k0097",
+          "name": "cynthia.m",
+          "service": "pppoe",
+          "address": "10.10.2.227",
+          "macAddress": "2D:D9:E7:19:B7:1C",
+          "uptimeSec": 45,
+          "bytesIn": 119320875,
+          "bytesOut": 29682000,
+          "rateRxKbps": 8735,
+          "rateTxKbps": 2528,
+          "since": "2026-08-01T06:33:52.328Z"
+        }
+      ],
+      "queues": [
+        {
+          "id": "queue_ms9xd07y000j",
+          "name": "q-cynthia.m",
+          "target": "10.10.2.227",
+          "maxLimit": "40M/40M",
+          "bytesIn": 9052191750,
+          "bytesOut": 2271696250,
+          "disabled": false
+        },
+        {
+          "id": "queue_ms9xd07y000q",
+          "name": "q-david.k",
+          "target": "10.10.2.208",
+          "maxLimit": "10M/10M",
+          "bytesIn": 0,
+          "bytesOut": 0,
+          "disabled": true
+        },
+        {
+          "id": "queue_ms9xd07y0010",
+          "name": "q-felix.b",
+          "target": "192.168.88.59",
+          "maxLimit": "8M/8M",
+          "bytesIn": 0,
+          "bytesOut": 0,
+          "disabled": true
+        }
+      ],
+      "uplinkBytesIn": 9052191750,
+      "uplinkBytesOut": 2271696250,
+      "lastTick": "2026-08-01T06:34:34.449Z"
+    }
+  },
+  "auditLog": [
+    {
+      "id": "aud_ms9xd07y000m",
+      "ts": "2026-08-01T05:22:25.246Z",
+      "actorId": null,
+      "actorEmail": "system",
+      "action": "billing.invoice.renewal",
+      "target": "INV-000004",
+      "outcome": "success",
+      "details": {
+        "subscriptionId": "sub_ms9xd07y000h",
+        "amount": 6000
+      }
+    },
+    {
+      "id": "aud_ms9xd07y000r",
+      "ts": "2026-08-01T05:22:25.246Z",
+      "actorId": null,
+      "actorEmail": "system",
+      "action": "billing.subscription.suspended",
+      "target": "sub_ms9xd07y000o",
+      "outcome": "success",
+      "details": {
+        "reason": "unpaid-first-invoice"
+      }
+    },
+    {
+      "id": "aud_ms9xdf0d0016",
+      "ts": "2026-08-01T05:22:44.413Z",
+      "actorId": "usr_ms9xdeze0015",
+      "actorEmail": "admin@evac.test",
+      "action": "auth.register",
+      "target": "usr_ms9xdeze0015",
+      "outcome": "success",
+      "ip": "127.0.0.1",
+      "details": {
+        "role": "admin",
+        "bootstrap": true
+      }
+    },
+    {
+      "id": "aud_ms9xdf560018",
+      "ts": "2026-08-01T05:22:44.586Z",
+      "actorId": "usr_ms9xdeze0015",
+      "actorEmail": "admin@evac.test",
+      "action": "billing.subscriber.create",
+      "target": "cust_ms9xdf560017",
+      "outcome": "success",
+      "ip": "127.0.0.1",
+      "details": {
+        "name": "Test User",
+        "username": "test.user"
+      }
+    },
+    {
+      "id": "aud_ms9xdf8a0019",
+      "ts": "2026-08-01T05:22:44.698Z",
+      "actorId": null,
+      "actorEmail": "admin@evac.test",
+      "action": "auth.login",
+      "outcome": "failure",
+      "ip": "127.0.0.1"
+    }
+  ]
+}
