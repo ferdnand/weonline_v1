@@ -14,8 +14,13 @@ import fs from 'fs';
 import path from 'path';
 import type { StoreData } from './types';
 import { decryptField, encryptField } from './crypto';
+import { log } from './logger';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const slog = log('store');
+
+// Where the JSON store lives. Overridable via DATA_DIR so a persistent-host
+// volume (Railway/Render) can mount anywhere; defaults to ./data locally.
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'weonline.json');
 
 // Credential fields that must be encrypted on disk (they can't be one-way hashed
@@ -44,6 +49,7 @@ function emptyStore(): StoreData {
     payments: [],
     routers: [],
     simState: {},
+    auditLog: [],
   };
 }
 
@@ -68,7 +74,7 @@ export class Store {
         return data;
       }
     } catch (err) {
-      console.error('[store] failed to load, starting fresh:', err);
+      slog.error({ err }, 'failed to load store, starting fresh');
     }
     return emptyStore();
   }
@@ -92,7 +98,7 @@ export class Store {
       fs.writeFileSync(DATA_FILE, JSON.stringify(toEncryptedDisk(this.data), null, 2), 'utf-8');
       this.dirty = false;
     } catch (err) {
-      console.error('[store] failed to flush:', err);
+      slog.error({ err }, 'failed to flush store to disk');
     }
   }
 

@@ -12,6 +12,9 @@
 
 import { BillingEngine } from './billing/engine';
 import { MikrotikManager } from './mikrotik/manager';
+import { log } from './logger';
+
+const schedlog = log('scheduler');
 
 const SIM_TICK_MS = 3000;
 const BILLING_TICK_MS = 15000;
@@ -41,7 +44,7 @@ export function startScheduler(mik: MikrotikManager, engine: BillingEngine): () 
         await engine.runCycle(now, caps);
       }
     } catch (err) {
-      console.error('[scheduler] tick failed:', err instanceof Error ? err.message : err);
+      schedlog.error({ err: err instanceof Error ? err.message : err }, 'tick failed');
     } finally {
       running = false;
     }

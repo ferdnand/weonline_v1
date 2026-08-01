@@ -261,6 +261,28 @@ export interface AuthUserRecord {
   createdAt: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit trail (persisted "who did what")
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A single business-level audit event. Low-volume, security/compliance-relevant
+ * actions only (logins, CRUD on subscribers/plans, payments, provisioning) — NOT
+ * per-request HTTP logs, which stream to the operational logger instead. Kept in
+ * the store so it survives restarts and is queryable via GET /api/audit.
+ */
+export interface AuditEntry {
+  id: string;
+  ts: string; // ISO timestamp (server clock)
+  actorId: string | null; // uid, or null for anonymous/system
+  actorEmail: string | null; // email, or a label like 'system' / 'anonymous'
+  action: string; // dotted verb, e.g. 'auth.login', 'billing.subscriber.create'
+  target?: string; // affected entity id/label, e.g. subscriber id
+  outcome: 'success' | 'failure';
+  ip?: string; // client IP when known
+  details?: Record<string, unknown>; // small, non-sensitive extra context
+}
+
 export interface StoreData {
   meta: { seeded: boolean; invoiceSeq: number; version: number };
   users: AuthUserRecord[];
@@ -271,4 +293,5 @@ export interface StoreData {
   payments: Payment[];
   routers: RouterRecord[];
   simState: Record<string, RouterSimState>; // keyed by routerId
+  auditLog: AuditEntry[]; // capped ring of business audit events (newest last)
 }

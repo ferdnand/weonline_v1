@@ -10,6 +10,7 @@ import { BillingEngine } from './billing/engine';
 import { mikrotikRoutes } from './mikrotik/routes';
 import { billingRoutes } from './billing/routes';
 import { authRoutes } from './auth/routes';
+import { auditRoutes } from './auditRoutes';
 import { requireAuth, requireAdminForDeletes } from './auth/middleware';
 import { startScheduler } from './scheduler';
 import { seedIfEmpty } from './seed';
@@ -34,7 +35,10 @@ export async function mountApi(app: Express): Promise<Backend> {
   app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
   app.use('/api/mikrotik', requireAuth, requireAdminForDeletes, mikrotikRoutes(store, mik));
-  app.use('/api/billing', requireAuth, requireAdminForDeletes, billingRoutes(engine));
+  app.use('/api/billing', requireAuth, requireAdminForDeletes, billingRoutes(engine, store));
+
+  // Audit trail (admin-only, enforced inside auditRoutes).
+  app.use('/api/audit', requireAuth, auditRoutes(store));
 
   const stopScheduler = startScheduler(mik, engine);
 

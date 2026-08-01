@@ -5,11 +5,17 @@
 import { Router as ExpressRouter } from 'express';
 import { BillingEngine } from './engine';
 import { generatePassword } from '../crypto';
+import { Store } from '../store';
+import { recordAudit, actorOf } from '../audit';
+import type { AuthedRequest } from '../auth/middleware';
 
-export function billingRoutes(engine: BillingEngine): ExpressRouter {
+export function billingRoutes(engine: BillingEngine, store: Store): ExpressRouter {
   const r = ExpressRouter();
   const now = () => Date.now();
   const bad = (res: any, msg: string) => res.status(400).json({ error: msg });
+  // Attribute a mutation to the authenticated caller.
+  const audit = (req: AuthedRequest, action: string, target?: string, details?: Record<string, unknown>) =>
+    recordAudit(store, { ...actorOf(req), action, target, details }, now());
 
   // ── Plans ──────────────────────────────────────────────────────────────────
   r.get('/plans', (_req, res) => res.json(engine.listPlans()));
@@ -31,18 +37,21 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
       },
       now(),
     );
+    audit(req, 'billing.plan.create', plan.id, { name: plan.name, price: plan.price });
     res.json(plan);
   });
 
   r.put('/plans/:id', (req, res) => {
     const plan = engine.updatePlan(req.params.id, req.body || {});
     if (!plan) return res.status(404).json({ error: 'plan not found' });
+    audit(req, 'billing.plan.update', plan.id, { name: plan.name });
     res.json(plan);
   });
 
   r.delete('/plans/:id', (req, res) => {
     const ok = engine.deletePlan(req.params.id);
     if (!ok) return bad(res, 'plan is in use by an active subscription');
+    audit(req, 'billing.plan.delete', req.params.id);
     res.json({ ok: true });
   });
 
@@ -65,12 +74,14 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
       },
       now(),
     );
+    audit(req, 'billing.subscriber.create', sub.id, { name: sub.name, username: sub.username });
     res.json(sub);
   });
 
   r.put('/subscribers/:id', (req, res) => {
     const sub = engine.updateSubscriber(req.params.id, req.body || {});
     if (!sub) return res.status(404).json({ error: 'subscriber not found' });
+    audit(req, 'billing.subscriber.update', sub.id, { name: sub.name });
     res.json(sub);
   });
 
@@ -78,6 +89,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     try {
       const ok = await engine.deleteSubscriber(req.params.id);
       if (!ok) return res.status(404).json({ error: 'subscriber not found' });
+      audit(req, 'billing.subscriber.delete', req.params.id);
       res.json({ ok: true });
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -93,6 +105,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     try {
       const result = await engine.createSubscription(b.subscriberId, b.planId, b.autoRenew !== false, now());
       if ('error' in result) return bad(res, result.error);
+      audit(req, 'billing.subscription.create', result.subscription.id, { planId: b.planId, invoice: result.invoice.number });
       res.json(result);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -103,6 +116,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     try {
       const s = await engine.suspendSubscription(req.params.id, now());
       if (!s) return res.status(404).json({ error: 'subscription not found' });
+      audit(req, 'billing.subscription.suspend', s.id);
       res.json(s);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -113,6 +127,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     try {
       const s = await engine.activateSubscription(req.params.id, now());
       if (!s) return res.status(404).json({ error: 'subscription not found' });
+      audit(req, 'billing.subscription.activate', s.id);
       res.json(s);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -123,6 +138,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     try {
       const s = await engine.cancelSubscription(req.params.id, now());
       if (!s) return res.status(404).json({ error: 'subscription not found' });
+      audit(req, 'billing.subscription.cancel', s.id);
       res.json(s);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -141,6 +157,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     if (!phone) return bad(res, 'phone required');
     const result = engine.initiateMpesa(req.params.id, phone, now());
     if ('error' in result) return bad(res, result.error);
+    audit(req, 'billing.payment.mpesa.initiate', result.id, { invoiceId: req.params.id, amount: result.amount });
     res.json(result);
   });
 
@@ -150,6 +167,7 @@ export function billingRoutes(engine: BillingEngine): ExpressRouter {
     try {
       const result = await engine.recordManualPayment(req.params.id, method, now());
       if ('error' in result) return bad(res, result.error);
+      audit(req, 'billing.payment.manual', result.id, { invoiceId: req.params.id, method, amount: result.amount });
       res.json(result);
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });

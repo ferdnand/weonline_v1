@@ -9,12 +9,44 @@ import https from "https";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { mountApi } from "./server/index";
+import { logger, log } from "./server/logger";
+import { pinoHttp } from "pino-http";
+import type { AuthedRequest } from "./server/auth/middleware";
+
+const slog = log("server");
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Persistent hosts (Railway/Render) inject PORT; fall back to 3000 locally.
+  const PORT = Number(process.env.PORT) || 3000;
 
   const isProd = process.env.NODE_ENV === "production";
+
+  // Structured HTTP request logging. Runs first so every request is logged with
+  // method/path/status/latency plus the authenticated actor (attached later by
+  // requireAuth) and the real client IP. Health checks are dropped to debug to
+  // avoid flooding logs on platforms that poll /api/health frequently.
+  app.use(
+    pinoHttp({
+      logger,
+      autoLogging: {
+        ignore: (req) => req.url === "/api/health",
+      },
+      customProps: (req) => {
+        const auth = (req as AuthedRequest).auth;
+        return auth ? { actorId: auth.uid, actor: auth.email } : {};
+      },
+      customLogLevel: (_req, res, err) => {
+        if (err || res.statusCode >= 500) return "error";
+        if (res.statusCode >= 400) return "warn";
+        return "info";
+      },
+      serializers: {
+        req: (req) => ({ method: req.method, url: req.url, ip: req.raw?.ip }),
+        res: (res) => ({ statusCode: res.statusCode }),
+      },
+    }),
+  );
 
   // Behind a reverse proxy, set TRUST_PROXY (e.g. 1 = one hop) so req.ip is the real
   // client — otherwise rate-limiting would bucket every client under the proxy's IP.
@@ -90,11 +122,11 @@ async function startServer() {
   if (keyFile && certFile) {
     const credentials = { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
     https.createServer(credentials, app).listen(PORT, HOST, () => {
-      console.log(`Server running on https://${shownHost}:${PORT}`);
+      slog.info({ url: `https://${shownHost}:${PORT}`, tls: true }, "server listening");
     });
   } else {
     app.listen(PORT, HOST, () => {
-      console.log(`Server running on http://${shownHost}:${PORT}`);
+      slog.info({ url: `http://${shownHost}:${PORT}`, tls: false }, "server listening");
     });
   }
 }

@@ -14,11 +14,15 @@ import type { RouterDriver, RouterRecord, StoreData } from '../types';
 import { MikrotikManager } from './manager';
 import { Store } from '../store';
 import { isPrivateIpv4 } from '../net';
+import { recordAudit, actorOf } from '../audit';
+import type { AuthedRequest } from '../auth/middleware';
 
 export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRouter {
   const r = ExpressRouter();
   const d = (): StoreData => store.data;
   const now = () => Date.now();
+  const audit = (req: AuthedRequest, action: string, target?: string, details?: Record<string, unknown>) =>
+    recordAudit(store, { ...actorOf(req), action, target, details }, now());
 
   const routerById = (id: string): RouterRecord | undefined =>
     d().routers.find((x) => x.id === id);
@@ -126,6 +130,11 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     else d().routers.push(rec);
     mik.ensureRouter(rec.id, rec.identity, rec.model, now());
     store.save();
+    audit(req, existing ? 'mikrotik.router.update' : 'mikrotik.router.create', rec.id, {
+      name: rec.name,
+      driver: rec.driver,
+      ipAddress: rec.ipAddress,
+    });
     res.json(publicRouter(rec));
   });
 
@@ -135,6 +144,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     d().routers = d().routers.filter((x) => x.id !== req.params.id);
     delete d().simState[req.params.id];
     store.save();
+    audit(req, 'mikrotik.router.delete', req.params.id, { name: rec.name });
     res.json({ ok: true });
   });
 
@@ -153,6 +163,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     rec.status = online ? 'online' : 'offline';
     mik.setOnline(rec.id, online);
     store.save();
+    audit(req, 'mikrotik.router.power', rec.id, { online });
     res.json({ id: rec.id, status: rec.status });
   });
 
@@ -191,6 +202,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
   r.post('/routers/:id/active/:sessionId/disconnect', async (req, res) => {
     try {
       await mik.disconnectSession(req.params.id, req.params.sessionId);
+      audit(req, 'mikrotik.session.disconnect', req.params.id, { sessionId: req.params.sessionId });
       res.json({ ok: true });
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -202,6 +214,7 @@ export function mikrotikRoutes(store: Store, mik: MikrotikManager): ExpressRoute
     const enabled = !!(req.body && req.body.enabled);
     try {
       await mik.setUserEnabled(req.params.id, req.params.username, enabled, now());
+      audit(req, 'mikrotik.user.enabled', req.params.id, { username: req.params.username, enabled });
       res.json({ ok: true });
     } catch (err) {
       res.status(502).json({ error: err instanceof Error ? err.message : String(err) });

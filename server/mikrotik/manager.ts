@@ -11,6 +11,9 @@ import type { ProvisionSpec, RouterSimState, StoreData } from '../types';
 import type { CappedUser, MikrotikDriver } from './driver';
 import { MikrotikSimulator } from './simulator';
 import { LiveRouterOsDriver } from './live';
+import { log } from '../logger';
+
+const mlog = log('mikrotik');
 
 export class MikrotikManager {
   private simulator: MikrotikSimulator;
@@ -76,7 +79,7 @@ export class MikrotikManager {
         this.driverFor(rec.id)
           .refresh(rec.id, nowMs, dtSec)
           .catch((err) => {
-            console.error(`[mikrotik] refresh ${rec.id} failed:`, err instanceof Error ? err.message : err);
+            mlog.error({ routerId: rec.id, err: err instanceof Error ? err.message : err }, 'router refresh failed');
             return [] as CappedUser[];
           }),
       ),

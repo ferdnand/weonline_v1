@@ -11,7 +11,8 @@ import rateLimit from 'express-rate-limit';
 import { Store } from '../store';
 import { AuthService, toPublicUser } from './service';
 import { issueToken } from './tokens';
-import { requireAuth, type AuthedRequest } from './middleware';
+import { requireAuth, optionalAuth, type AuthedRequest } from './middleware';
+import { recordAudit, actorOf } from '../audit';
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 // Successful logins don't count against the limit, so normal use is unaffected.
@@ -43,6 +44,7 @@ export function authRoutes(store: Store): ExpressRouter {
     try {
       const user = auth.createUser(email, password, displayName ?? null, now());
       const token = issueToken(user, now());
+      recordAudit(store, { actorId: user.uid, actorEmail: user.email, action: 'auth.register', target: user.uid, ip: req.ip, details: { role: user.role, bootstrap: true } }, now());
       res.json({ token, user });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'registration failed' });
@@ -69,6 +71,7 @@ export function authRoutes(store: Store): ExpressRouter {
     const wantRole = role === 'admin' ? 'admin' : 'technician';
     try {
       const user = auth.createUser(email, password, displayName ?? null, now(), { role: wantRole });
+      recordAudit(store, { ...actorOf(req), action: 'auth.user.create', target: user.uid, details: { email: user.email, role: user.role } }, now());
       res.json({ user });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'could not create user' });
@@ -84,13 +87,16 @@ export function authRoutes(store: Store): ExpressRouter {
     if (target.role === 'admin' && role !== 'admin' && auth.adminCount() <= 1) {
       return res.status(400).json({ error: 'cannot demote the last admin' });
     }
-    res.json({ user: auth.setRole(target.uid, role) });
+    const updated = auth.setRole(target.uid, role);
+    recordAudit(store, { ...actorOf(req), action: 'auth.user.role', target: target.uid, details: { email: target.email, role } }, now());
+    res.json({ user: updated });
   });
 
   // Reset a user's password.
   r.post('/users/:uid/password', requireAuth, adminOnly, (req: AuthedRequest, res) => {
     try {
       auth.resetPassword(req.params.uid, String(req.body?.password ?? ''));
+      recordAudit(store, { ...actorOf(req), action: 'auth.user.password_reset', target: req.params.uid }, now());
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'could not reset password' });
@@ -107,6 +113,7 @@ export function authRoutes(store: Store): ExpressRouter {
     }
     try {
       auth.deleteUser(target.uid);
+      recordAudit(store, { ...actorOf(req), action: 'auth.user.delete', target: target.uid, details: { email: target.email } }, now());
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'could not delete user' });
@@ -121,10 +128,12 @@ export function authRoutes(store: Store): ExpressRouter {
     const rec = auth.verify(String(email), String(password));
     if (!rec) {
       // Single generic message — do not reveal whether the email exists.
+      recordAudit(store, { actorId: null, actorEmail: String(email), action: 'auth.login', outcome: 'failure', ip: req.ip }, now());
       return res.status(401).json({ error: 'invalid email or password' });
     }
     const user = toPublicUser(rec);
     const token = issueToken(user, now());
+    recordAudit(store, { actorId: user.uid, actorEmail: user.email, action: 'auth.login', outcome: 'success', ip: req.ip }, now());
     res.json({ token, user });
   });
 
@@ -136,7 +145,12 @@ export function authRoutes(store: Store): ExpressRouter {
   });
 
   // Stateless tokens: logout is client-side (drop the token). Provided for symmetry.
-  r.post('/logout', (_req, res) => res.json({ ok: true }));
+  // Never blocks — but if a valid token is present, attribute the logout in the
+  // audit trail. `optionalAuth` populates req.auth without rejecting anonymous callers.
+  r.post('/logout', optionalAuth, (req: AuthedRequest, res) => {
+    if (req.auth) recordAudit(store, { ...actorOf(req), action: 'auth.logout' }, now());
+    res.json({ ok: true });
+  });
 
   return r;
 }

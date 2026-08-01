@@ -10,6 +10,9 @@
 
 import crypto from 'crypto';
 import type { Role } from '../types';
+import { log } from '../logger';
+
+const tlog = log('auth');
 
 const TTL_SECONDS = 12 * 60 * 60; // 12h sessions
 
@@ -17,11 +20,11 @@ function resolveSecret(): string {
   const fromEnv = process.env.AUTH_SECRET;
   if (fromEnv && fromEnv.length >= 16) return fromEnv;
   if (fromEnv && fromEnv.length < 16) {
-    console.warn('[auth] AUTH_SECRET is too short (<16 chars); using it anyway, but lengthen it for production.');
+    tlog.warn('AUTH_SECRET is too short (<16 chars); using it anyway, but lengthen it for production.');
     return fromEnv;
   }
-  console.warn(
-    '[auth] AUTH_SECRET is not set — generating an ephemeral secret. Sessions will not survive a restart. ' +
+  tlog.warn(
+    'AUTH_SECRET is not set — generating an ephemeral secret. Sessions will not survive a restart. ' +
       'Set AUTH_SECRET in .env.local before production.',
   );
   return crypto.randomBytes(32).toString('hex');

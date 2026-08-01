@@ -64,7 +64,17 @@ Generate secrets with: `node -e "console.log(require('crypto').randomBytes(32).t
 
 > Tests cover the security-critical server modules — auth tokens (sign/verify/expiry),
 > PBKDF2 credential verification, at-rest field encryption, the SSRF private-IP guard,
-> and an end-to-end auth-gate + staff-management integration test (via supertest).
+> the audit trail (`recordAudit` cap/shape), and end-to-end auth-gate + staff-management +
+> `/api/audit` integration tests (via supertest).
+
+### Hosting
+
+WeOnline is a **stateful, always-on server** and must run on a **persistent host**
+(container/VM), **not** on serverless/Vercel. In production the listen port comes from
+`PORT` and the JSON store path from `DATA_DIR` (mount a persistent volume there). See
+[`deploy/README.md`](deploy/README.md) for reverse-proxy, native-TLS, and managed-host
+(Railway/Render) recipes — including reaching live routers from the cloud over a
+Tailscale subnet route.
 
 ---
 
@@ -144,6 +154,29 @@ Assembled by `server/index.ts#mountApi(app)` (async), called from `server.ts`.
   `manager.refreshAll()` + `settlePending()` every 3s, `engine.runCycle()` every 15s.
 - [`seed.ts`](server/seed.ts) — first-run world (2 **simulator** routers, 5 plans, 6
   subscribers across the lifecycle). Runs only when `data/weonline.json` is absent/empty.
+- [`logger.ts`](server/logger.ts) — the single structured logger (`pino`). Pretty in dev,
+  JSON on stdout in prod; optionally tees to Better Stack (`BETTERSTACK_SOURCE_TOKEN`).
+  Use `log('module')` for a tagged child logger. Credentials are redacted.
+- [`audit.ts`](server/audit.ts) — the persisted **audit trail**. `recordAudit(store, …)`
+  appends a business event to `store.data.auditLog` (a capped ring, `AUDIT_CAP`), saves,
+  and mirrors it to the logger. `actorOf(req)` pulls the caller identity + IP off a request.
+  Read-only [`auditRoutes.ts`](server/auditRoutes.ts) serves `GET /api/audit` (admin-only,
+  filter by actor/action/outcome, paginated).
+
+#### Logging & audit (three layers)
+1. **HTTP request logs** — `pino-http` in [`server.ts`](server.ts) logs every request
+   (method, path, status, latency, client IP, and the authenticated actor). `/api/health`
+   is dropped to `debug` to avoid healthcheck spam.
+2. **Operational/app logs** — structured `log('…')` calls across the store, crypto, auth,
+   scheduler, mikrotik, and billing (e.g. a per-cycle summary of renewals/suspensions,
+   router poll failures).
+3. **Audit trail** — durable "who did what". **Staff actions** are audited at the route
+   layer (attributed to the caller): plan/subscriber/subscription CRUD, payments, router
+   provisioning, and auth events (login success/failure, register, staff management).
+   **Automated lifecycle changes** are audited by the engine as actor `system`
+   (M-Pesa settlement, renewal invoices, grace/suspension/data-cap expiry). Viewable in the
+   **Admin → Audit** tab. High-volume request logs never enter the store (they stream to
+   stdout / the log platform) so the wholesale-rewritten JSON file stays small.
 
 The client talks to this over [`src/api/client.ts`](src/api/client.ts) (typed fetch
 wrapper), consumed by [`src/views/BillingView.tsx`](src/views/BillingView.tsx) and

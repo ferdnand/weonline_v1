@@ -29,6 +29,10 @@ import type {
 } from '../types';
 import { makeId, Store } from '../store';
 import { MikrotikManager } from '../mikrotik/manager';
+import { recordAudit } from '../audit';
+import { log } from '../logger';
+
+const blog = log('billing');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GRACE_DAYS = 2; // grace window after period end before suspension
@@ -193,7 +197,7 @@ export class BillingEngine {
       await this.mik.upsertUser(sub.routerId, this.provisionSpec(sub, plan), nowMs);
       await this.mik.setUserEnabled(sub.routerId, sub.username, false, nowMs);
     } catch (err) {
-      console.error('[billing] enroll provisioning failed (will retry on payment):', err instanceof Error ? err.message : err);
+      blog.error({ err: err instanceof Error ? err.message : err }, 'enroll provisioning failed (will retry on payment)');
     }
 
     return { subscription, invoice };
@@ -348,9 +352,31 @@ export class BillingEngine {
         p.mpesaReceipt = mpesaReceipt(p.id);
         const invoice = this.d().invoices.find((i) => i.id === p.invoiceId);
         if (invoice && invoice.status !== 'paid') await this.settleInvoice(invoice, p, nowMs);
+        recordAudit(
+          this.store,
+          {
+            actorEmail: 'system',
+            action: 'billing.payment.settled',
+            target: p.id,
+            outcome: 'success',
+            details: { method: 'mpesa', amount: p.amount, invoiceId: p.invoiceId, receipt: p.mpesaReceipt },
+          },
+          nowMs,
+        );
       } else {
         p.status = 'failed';
         p.failureReason = roll < 0.96 ? 'Request cancelled by user' : 'STK push timed out';
+        recordAudit(
+          this.store,
+          {
+            actorEmail: 'system',
+            action: 'billing.payment.failed',
+            target: p.id,
+            outcome: 'failure',
+            details: { method: 'mpesa', amount: p.amount, invoiceId: p.invoiceId, reason: p.failureReason },
+          },
+          nowMs,
+        );
       }
     }
     this.store.save();
@@ -386,7 +412,7 @@ export class BillingEngine {
     try {
       await this.applyProvisioning(sub, true, nowMs);
     } catch (err) {
-      console.error('[billing] provisioning on payment failed (retry via Activate):', err instanceof Error ? err.message : err);
+      blog.error({ err: err instanceof Error ? err.message : err }, 'provisioning on payment failed (retry via Activate)');
     }
   }
 
@@ -400,6 +426,9 @@ export class BillingEngine {
    * Also expires users whose hotspot data cap was hit (passed in from the sim).
    */
   async runCycle(nowMs: number, cappedUsers: { routerId: string; username: string }[] = []): Promise<void> {
+    // Tally material transitions this cycle for an operational summary log.
+    const summary = { expired: 0, overdue: 0, renewed: 0, graced: 0, suspended: 0 };
+
     // Handle data-cap expiries reported by the simulator.
     for (const { username } of cappedUsers) {
       const subscriber = this.d().subscribers.find((s) => s.username === username);
@@ -410,6 +439,12 @@ export class BillingEngine {
       if (sub) {
         this.setStatus(sub, 'expired', nowMs);
         sub.provisioned = false; // sim already disabled the user at the cap
+        summary.expired++;
+        recordAudit(
+          this.store,
+          { actorEmail: 'system', action: 'billing.subscription.expired', target: sub.id, details: { reason: 'data-cap', username } },
+          nowMs,
+        );
       }
     }
 
@@ -417,6 +452,7 @@ export class BillingEngine {
     for (const inv of this.d().invoices) {
       if (inv.status === 'unpaid' && new Date(inv.dueDate).getTime() < nowMs) {
         inv.status = 'overdue';
+        summary.overdue++;
       }
     }
 
@@ -444,9 +480,16 @@ export class BillingEngine {
             currentPeriodStart: new Date(nowMs).toISOString(),
             currentPeriodEnd: nextEnd,
           };
-          this.issueInvoice(staged, plan, nowMs);
+          const renewal = this.issueInvoice(staged, plan, nowMs);
+          summary.renewed++;
+          recordAudit(
+            this.store,
+            { actorEmail: 'system', action: 'billing.invoice.renewal', target: renewal.number, details: { subscriptionId: sub.id, amount: renewal.amount } },
+            nowMs,
+          );
         }
         this.setStatus(sub, 'grace', nowMs);
+        summary.graced++;
         continue;
       }
 
@@ -455,6 +498,12 @@ export class BillingEngine {
         if (graceOver) {
           this.setStatus(sub, 'suspended', nowMs);
           await this.applyProvisioning(sub, false, nowMs);
+          summary.suspended++;
+          recordAudit(
+            this.store,
+            { actorEmail: 'system', action: 'billing.subscription.suspended', target: sub.id, details: { reason: 'grace-expired' } },
+            nowMs,
+          );
         }
         continue;
       }
@@ -465,10 +514,21 @@ export class BillingEngine {
         if (graceOver) {
           this.setStatus(sub, 'suspended', nowMs);
           await this.applyProvisioning(sub, false, nowMs);
+          summary.suspended++;
+          recordAudit(
+            this.store,
+            { actorEmail: 'system', action: 'billing.subscription.suspended', target: sub.id, details: { reason: 'unpaid-first-invoice' } },
+            nowMs,
+          );
         }
       }
     }
     this.store.save();
+
+    // Only log a summary when something actually changed, to keep the 15s cycle quiet.
+    if (summary.expired || summary.overdue || summary.renewed || summary.graced || summary.suspended) {
+      blog.info(summary, 'billing cycle applied changes');
+    }
   }
 
   // ── Reports ──────────────────────────────────────────────────────────────────

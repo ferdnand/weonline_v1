@@ -108,6 +108,24 @@ The **Staff** tab appears only for admins. From here you can:
 The server blocks you from deleting your own account or removing the **last admin**, so
 you can't accidentally lock everyone out.
 
+### Audit log (admins only) 🔎
+The **Audit** tab is a durable, searchable record of everything that happens in the
+system — "who did what, when". Every entry has a timestamp, the actor (staff email, or
+`system` for automated billing), the action, the affected target, the outcome, and the
+client IP. You'll see:
+- **Account events** — logins (including *failed* attempts, flagged in red), sign-ups,
+  and staff account/role/password changes.
+- **Billing events** — plan/subscriber/subscription changes, and payments (both
+  staff-recorded and automatic M-Pesa settlement).
+- **Router events** — adding/removing routers, provisioning, and disconnects.
+- **Automated events** — renewals, grace, suspensions, and data-cap expiries, recorded
+  by the billing engine as `system`.
+
+Filter by **actor** (email substring), **action** prefix (e.g. `billing.payment`), or
+**outcome** (success/failure), and use **Load more** to page back through history. The
+same events are also written to the server logs (and shipped to your log platform if
+one is configured), so nothing depends on the browser being open.
+
 ### Manage clients
 Under the **Clients** tab:
 - **Add Client** — name, phone, type (PPPoE/Hotspot), plan, price, router, and PPPoE

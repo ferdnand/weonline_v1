@@ -304,6 +304,18 @@ export const api = {
   setUserEnabled: (id: string, username: string, enabled: boolean) =>
     req<{ ok: true }>('POST', `/api/mikrotik/routers/${id}/users/${encodeURIComponent(username)}/enabled`, { enabled }),
 
+  // Audit trail (admin-only). Supports filtering + pagination.
+  listAudit: (opts: AuditQuery = {}) => {
+    const q = new URLSearchParams();
+    if (opts.actor) q.set('actor', opts.actor);
+    if (opts.action) q.set('action', opts.action);
+    if (opts.outcome) q.set('outcome', opts.outcome);
+    if (opts.limit != null) q.set('limit', String(opts.limit));
+    if (opts.offset != null) q.set('offset', String(opts.offset));
+    const qs = q.toString();
+    return req<AuditPage>('GET', `/api/audit${qs ? `?${qs}` : ''}`);
+  },
+
   // Staff (admin-only)
   listStaff: () => req<{ users: StaffUser[] }>('GET', '/api/auth/users'),
   createStaff: (b: { email: string; password: string; displayName?: string; role?: StaffRole }) =>
@@ -322,6 +334,34 @@ export interface StaffUser {
   role: StaffRole;
   displayName: string | null;
   createdAt: string;
+}
+
+// ── Audit trail DTOs ──────────────────────────────────────────────────────────
+export interface AuditEntry {
+  id: string;
+  ts: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  action: string;
+  target?: string;
+  outcome: 'success' | 'failure';
+  ip?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface AuditQuery {
+  actor?: string;
+  action?: string;
+  outcome?: 'success' | 'failure';
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditPage {
+  total: number;
+  limit: number;
+  offset: number;
+  entries: AuditEntry[];
 }
 
 // ── Formatting helpers shared by the views ────────────────────────────────────

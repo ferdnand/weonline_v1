@@ -34,6 +34,20 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   next();
 }
 
+/**
+ * Populate req.auth when a valid token is present, but never reject anonymous
+ * callers. Used by endpoints that are public yet want to attribute the caller
+ * when known (e.g. logout in the audit trail).
+ */
+export function optionalAuth(req: AuthedRequest, _res: Response, next: NextFunction): void {
+  const token = bearer(req);
+  if (token) {
+    const payload = verifyToken(token, Date.now());
+    if (payload) req.auth = { uid: payload.uid, role: payload.role, email: payload.email };
+  }
+  next();
+}
+
 /** Admins only for destructive DELETE requests; everything else passes through. */
 export function requireAdminForDeletes(req: AuthedRequest, res: Response, next: NextFunction): void {
   if (req.method === 'DELETE' && req.auth?.role !== 'admin') {

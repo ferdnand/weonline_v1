@@ -10,7 +10,8 @@ import type { AuthUserRecord } from '../types';
 
 function fakeStore(): Store {
   const users: AuthUserRecord[] = [];
-  return { data: { users }, save: () => {} } as unknown as Store;
+  // auditLog is required now that auth routes record audit events on login/register/etc.
+  return { data: { users, auditLog: [] }, save: () => {} } as unknown as Store;
 }
 
 function buildApp() {

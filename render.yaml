@@ -1,0 +1,49 @@
+# Render Blueprint for WeOnline.
+# https://render.com/docs/blueprint-spec
+#
+# One always-on Node web service with a PERSISTENT DISK mounted at /data. The app
+# writes its whole state (billing + audit log) to $DATA_DIR — the disk keeps it
+# across deploys and restarts. NOTE: disks require a paid instance type (Starter+),
+# and a service with a disk is pinned to a SINGLE instance — which is exactly what
+# this app needs (in-memory state + in-process billing scheduler; never scale it).
+
+services:
+  - type: web
+    name: weonline
+    runtime: node
+    plan: starter # required for a disk (the free tier has no persistent disk)
+    region: frankfurt # closest Render region to East Africa; change if you prefer
+    # --include=dev forces devDependencies (vite/esbuild/tsx/tsc) to install even
+    # though NODE_ENV=production, so the build has its tooling.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: weonline-data
+      mountPath: /data
+      sizeGB: 1 # the JSON store is tiny; 1 GB is plenty
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATA_DIR
+        value: /data # MUST match the disk mountPath above
+      - key: LOG_LEVEL
+        value: info
+      # Session signing secret. Auto-generated once and kept stable by Render.
+      - key: AUTH_SECRET
+        generateValue: true
+      # At-rest encryption key for router/subscriber passwords. Must be 64 hex chars
+      # (or base64 for 32 bytes). Render will prompt for this on first sync — paste a
+      # value from: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      # Optional: ship logs to Better Stack (Logtail). Leave unset to skip.
+      - key: BETTERSTACK_SOURCE_TOKEN
+        sync: false

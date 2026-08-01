@@ -8,6 +8,7 @@ import type { RouterRecord } from './types';
 import { BillingEngine } from './billing/engine';
 import { MikrotikManager } from './mikrotik/manager';
 import { Store } from './store';
+import { log } from './logger';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -121,5 +122,8 @@ export async function seedIfEmpty(store: Store, mik: MikrotikManager, engine: Bi
 
   store.data.meta.seeded = true;
   store.flush();
-  console.log('[seed] initial WeOnline world created (2 routers, 5 plans, 6 subscribers)');
+  log('seed').info(
+    { routers: routers.length, plans: plans.length, subscribers: seeds.length },
+    'initial WeOnline world created',
+  );
 }

@@ -10,6 +10,9 @@
  */
 
 import crypto from 'crypto';
+import { log } from './logger';
+
+const clog = log('crypto');
 
 const PREFIX = 'enc:v1:';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; // no look-alikes
@@ -31,7 +34,7 @@ function resolveKey(): Buffer | null {
   if (direct) {
     const buf = /^[0-9a-fA-F]{64}$/.test(direct) ? Buffer.from(direct, 'hex') : Buffer.from(direct, 'base64');
     if (buf.length === 32) return (keyCache = buf);
-    console.warn('[crypto] DATA_ENCRYPTION_KEY must be 32 bytes (64 hex chars); ignoring it.');
+    clog.warn('DATA_ENCRYPTION_KEY must be 32 bytes (64 hex chars); ignoring it.');
   }
   const secret = process.env.AUTH_SECRET;
   if (secret && secret.length >= 16) {
@@ -39,7 +42,7 @@ function resolveKey(): Buffer | null {
     return (keyCache = crypto.scryptSync(secret, 'weonline-data-at-rest', 32));
   }
   if (!warned) {
-    console.warn('[crypto] No DATA_ENCRYPTION_KEY or AUTH_SECRET — passwords stored as PLAINTEXT at rest. Set one for production.');
+    clog.warn('No DATA_ENCRYPTION_KEY or AUTH_SECRET — passwords stored as PLAINTEXT at rest. Set one for production.');
     warned = true;
   }
   return (keyCache = null);
@@ -77,7 +80,7 @@ export function decryptField(v: string): string {
     decipher.setAuthTag(Buffer.from(tagB, 'base64'));
     return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
   } catch (err) {
-    console.error('[crypto] failed to decrypt a field (wrong DATA key?); leaving it encrypted:', (err as Error).message);
+    clog.error({ err: (err as Error).message }, 'failed to decrypt a field (wrong DATA key?); leaving it encrypted');
     return v;
   }
 }
