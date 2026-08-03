@@ -4,6 +4,8 @@ dist/
 coverage/
 # Runtime state only (repo root). Anchored so it does NOT also match src/data/.
 /data/
+# Smoke-test datastore — regenerated on every run, must not be tracked.
+/.smoke-data/
 .DS_Store
 *.log
 .env*
